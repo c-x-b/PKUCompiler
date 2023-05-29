@@ -3,7 +3,8 @@
 #include <iostream>
 #include <memory>
 #include <string>
-#include "AST.h"
+#include "IRAST.h"
+#include "RISCV.h"
 
 using namespace std;
 
@@ -39,7 +40,11 @@ int main(int argc, const char *argv[]) {
 
   FILE *yyout;
   yyout = fopen(output, "w+");
-  fprintf(yyout, "%s", koopa.c_str());
+  //fprintf(yyout, "%s", koopa.c_str()a);
+  string *riscv = new string;
+  toRISCV(koopa, riscv);
+
+  fprintf(yyout, "%s", riscv->c_str());
 
   return 0;
 }
