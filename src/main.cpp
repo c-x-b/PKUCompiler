@@ -40,11 +40,11 @@ int main(int argc, const char *argv[]) {
 
   FILE *yyout;
   yyout = fopen(output, "w+");
-  //fprintf(yyout, "%s", koopa.c_str()a);
-  string *riscv = new string;
-  toRISCV(koopa, riscv);
+  fprintf(yyout, "%s", koopa.c_str());
+  //string *riscv = new string;
+  //toRISCV(koopa, riscv);
 
-  fprintf(yyout, "%s", riscv->c_str());
+  //fprintf(yyout, "%s", riscv->c_str());
 
   return 0;
 }
