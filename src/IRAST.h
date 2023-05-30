@@ -107,14 +107,14 @@ public:
 
 class ExpAST : public BaseAST {
 public:
-    unique_ptr<BaseAST> unary_exp;
+    unique_ptr<BaseAST> add_exp;
 
     void Dump() const override {
-        unary_exp->Dump();
+        add_exp->Dump();
     }
 
     void GenKoopa(string & str) const override {
-        unary_exp->GenKoopa(str);
+        add_exp->GenKoopa(str);
     }
 };
 
@@ -122,21 +122,21 @@ class PrimaryExpAST : public BaseAST {
 public:
     int tag;
     struct {
-        // 0 
         unique_ptr<BaseAST> exp;
-        // 1
+    } data0;
+    struct {
         int number;
-    } data;
+    } data1;
 
     void Dump() const override {
         switch(tag) {
         case 0:
             cout << "( ";
-            data.exp->Dump();
+            data0.exp->Dump();
             cout << " )";
             break;
         case 1:
-            cout << data.number;
+            cout << data1.number;
             break;
         }
 
@@ -145,10 +145,10 @@ public:
     void GenKoopa(string & str) const override {
         switch(tag) {
         case 0:
-            data.exp->GenKoopa(str);
+            data0.exp->GenKoopa(str);
             break;
         case 1:
-            str += "%" + to_string(id++) + " = add 0, " + to_string(data.number) + "\n";
+            str += "%" + to_string(id++) + " = add 0, " + to_string(data1.number) + "\n";
             break;
         }
     }
@@ -158,21 +158,21 @@ class UnaryExpAST : public BaseAST {
 public:
     int tag;
     struct {
-        // 0
-        unique_ptr<BaseAST> primary_exp;
-        // 1
+        unique_ptr<BaseAST> primary_exp;      
+    } data0;
+    struct {
         unique_ptr<BaseAST> unary_op;
         unique_ptr<BaseAST> unary_exp;
-    } data;
+    } data1;
 
     void Dump() const override {
         switch(tag) {
         case 0:
-            data.primary_exp->Dump();
+            data0.primary_exp->Dump();
             break;
         case 1:
-            data.unary_op->Dump();
-            data.unary_exp->Dump();
+            data1.unary_op->Dump();
+            data1.unary_exp->Dump();
             break;
         }
     }
@@ -180,11 +180,11 @@ public:
     void GenKoopa(string & str) const override {
         switch(tag) {
         case 0:
-            data.primary_exp->GenKoopa(str);
+            data0.primary_exp->GenKoopa(str);
             break;
         case 1:
-            data.unary_exp->GenKoopa(str);
-            data.unary_op->GenKoopa(str);
+            data1.unary_exp->GenKoopa(str);
+            data1.unary_op->GenKoopa(str);
             break;
         }
     }
@@ -192,7 +192,7 @@ public:
 
 class UnaryOpAST : public BaseAST {
 public:
-    enum OP
+    enum UNARYOP
     {
         OP_PLUS,
         OP_MINUS,
@@ -230,4 +230,98 @@ public:
             break;
         }
     }
+};
+
+class MulExpAST : public BaseAST {
+public:
+    int tag;
+    struct DATA0{
+        unique_ptr<BaseAST> unary_exp;
+    } data0;
+    struct DATA1{
+        unique_ptr<BaseAST> mul_exp;
+        enum MULOP
+        {
+            OP_MUL,
+            OP_DIV,
+            OP_MOD
+        } op;
+        unique_ptr<BaseAST> unary_exp;
+    } data1;
+
+    void Dump() const override {
+
+    }
+
+    void GenKoopa(string &str) const override {
+        switch(tag) {
+        case 0:
+            data0.unary_exp->GenKoopa(str);
+            break;
+        case 1:
+            data1.unary_exp->GenKoopa(str);
+            string r2 = "%" + to_string(id - 1);
+            data1.mul_exp->GenKoopa(str);
+            string binaryOP;
+            switch(data1.op) {
+            case DATA1::OP_MUL:
+                binaryOP = "mul";
+                break;
+            case DATA1::OP_DIV:
+                binaryOP = "div";
+                break;
+            case DATA1::OP_MOD:
+                binaryOP = "mod";
+                break;
+            }
+            str += "%" + to_string(id) + " = " + binaryOP + " %" + to_string(id - 1) + ", " + r2 + "\n";
+            id++;
+            break;
+        }
+    }
+};
+
+class AddExpAST : public BaseAST {
+public:
+    int tag;
+    struct DATA0{
+        unique_ptr<BaseAST> mul_exp;
+    } data0;
+    struct DATA1{
+        unique_ptr<BaseAST> add_exp;
+        enum ADDOP
+        {
+            OP_ADD,
+            OP_MINUS
+        } op;
+        unique_ptr<BaseAST> mul_exp;
+    } data1;
+
+    void Dump() const override {
+
+    }
+
+    void GenKoopa(string &str) const override {
+        switch(tag) {
+        case 0:
+            data0.mul_exp->GenKoopa(str);
+            break;
+        case 1:
+            data1.mul_exp->GenKoopa(str);
+            string r2 = "%" + to_string(id - 1);
+            data1.add_exp->GenKoopa(str);
+            string binaryOP;
+            switch(data1.op) {
+            case DATA1::OP_ADD:
+                binaryOP = "add";
+                break;
+            case DATA1::OP_MINUS:
+                binaryOP = "sub";
+                break;
+            }
+            str += "%" + to_string(id) + " = " + binaryOP + " %" + to_string(id - 1) + ", " + r2 + "\n";
+            id++;
+            break;
+        }
+    }  
 };

@@ -42,7 +42,7 @@ using namespace std;
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block Stmt Exp PrimaryExp UnaryExp UnaryOp
+%type <ast_val> FuncDef FuncType Block Stmt Exp PrimaryExp UnaryExp UnaryOp MulExp AddExp
 %type <int_val> Number
 
 %%
@@ -107,10 +107,10 @@ Stmt
   ;
 
 Exp
-  : UnaryExp {
+  : AddExp {
     //std::cout <<"Exp\n";
     auto ast = new ExpAST();
-    ast->unary_exp = unique_ptr<BaseAST>($1);
+    ast->add_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -120,14 +120,14 @@ PrimaryExp
     //std::cout <<"PrimaryExp_(exp)\n";
     auto ast = new PrimaryExpAST();
     ast->tag = 0;
-    ast->data.exp = unique_ptr<BaseAST>($2);
+    ast->data0.exp = unique_ptr<BaseAST>($2);
     $$ = ast;
   }
   | Number {
     //std::cout <<"PrimaryExp_number\n";
     auto ast = new PrimaryExpAST();
     ast->tag = 1;
-    ast->data.number = $1;
+    ast->data1.number = $1;
     $$ = ast;
   }
   ;
@@ -143,15 +143,15 @@ UnaryExp
     //std::cout <<"UnaryExp_PrimaryExp\n";
     auto ast = new UnaryExpAST();
     ast->tag = 0;
-    ast->data.primary_exp = unique_ptr<BaseAST>($1);
+    ast->data0.primary_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   | UnaryOp UnaryExp {
     //std::cout <<"UnaryExp_OpExp\n";
     auto ast = new UnaryExpAST();
     ast->tag = 1;
-    ast->data.unary_op = unique_ptr<BaseAST>($1);
-    ast->data.unary_exp = unique_ptr<BaseAST>($2);
+    ast->data1.unary_op = unique_ptr<BaseAST>($1);
+    ast->data1.unary_exp = unique_ptr<BaseAST>($2);
     $$ = ast;
   } 
   ;
@@ -173,6 +173,64 @@ UnaryOp
     //std::cout <<"!\n";
     auto ast = new UnaryOpAST();
     ast->op = UnaryOpAST::OP_NOT;
+    $$ = ast;
+  }
+  ;
+
+MulExp
+  : UnaryExp {
+    auto ast = new MulExpAST();
+    ast->tag = 0;
+    ast->data0.unary_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | MulExp '*' UnaryExp {
+    auto ast = new MulExpAST();
+    ast->tag = 1;
+    ast->data1.mul_exp = unique_ptr<BaseAST>($1);
+    ast->data1.op = MulExpAST::DATA1::OP_MUL;
+    ast->data1.unary_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | MulExp '/' UnaryExp {
+    auto ast = new MulExpAST();
+    ast->tag = 1;
+    ast->data1.mul_exp = unique_ptr<BaseAST>($1);
+    ast->data1.op = MulExpAST::DATA1::OP_DIV;
+    ast->data1.unary_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | MulExp '%' UnaryExp {
+    auto ast = new MulExpAST();
+    ast->tag = 1;
+    ast->data1.mul_exp = unique_ptr<BaseAST>($1);
+    ast->data1.op = MulExpAST::DATA1::OP_MOD;
+    ast->data1.unary_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+AddExp
+  : MulExp {
+    auto ast = new AddExpAST();
+    ast->tag = 0;
+    ast->data0.mul_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | AddExp '+' MulExp {
+    auto ast = new AddExpAST();
+    ast->tag = 1;
+    ast->data1.add_exp = unique_ptr<BaseAST>($1);
+    ast->data1.op = AddExpAST::DATA1::OP_ADD;
+    ast->data1.mul_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | AddExp '-' MulExp {
+    auto ast = new AddExpAST();
+    ast->tag = 1;
+    ast->data1.add_exp = unique_ptr<BaseAST>($1);
+    ast->data1.op = AddExpAST::DATA1::OP_MINUS;
+    ast->data1.mul_exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
   ;
