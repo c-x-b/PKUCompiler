@@ -37,12 +37,14 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN
+%token INT RETURN LE GE EQ NE LAND LOR
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block Stmt Exp PrimaryExp UnaryExp UnaryOp MulExp AddExp
+%type <ast_val> FuncDef FuncType Block Stmt 
+                Exp PrimaryExp UnaryExp UnaryOp MulExp AddExp 
+                RelExp EqExp LAndExp LOrExp
 %type <int_val> Number
 
 %%
@@ -107,10 +109,10 @@ Stmt
   ;
 
 Exp
-  : AddExp {
+  : LOrExp {
     //std::cout <<"Exp\n";
     auto ast = new ExpAST();
-    ast->add_exp = unique_ptr<BaseAST>($1);
+    ast->l_or_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -233,6 +235,103 @@ AddExp
     ast->data1.mul_exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
+  ;
+
+RelExp
+  : AddExp {
+    auto ast = new RelExpAST();
+    ast->tag = 0;
+    ast->data0.add_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | RelExp '<' AddExp {
+    auto ast = new RelExpAST();
+    ast->tag = 1;
+    ast->data1.rel_exp = unique_ptr<BaseAST>($1);
+    ast->data1.comp = RelExpAST::DATA1::COMP_LT;
+    ast->data1.add_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | RelExp '>' AddExp {
+    auto ast = new RelExpAST();
+    ast->tag = 1;
+    ast->data1.rel_exp = unique_ptr<BaseAST>($1);
+    ast->data1.comp = RelExpAST::DATA1::COMP_GT;
+    ast->data1.add_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | RelExp LE AddExp {
+    auto ast = new RelExpAST();
+    ast->tag = 1;
+    ast->data1.rel_exp = unique_ptr<BaseAST>($1);
+    ast->data1.comp = RelExpAST::DATA1::COMP_LE;
+    ast->data1.add_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | RelExp GE AddExp {
+    auto ast = new RelExpAST();
+    ast->tag = 1;
+    ast->data1.rel_exp = unique_ptr<BaseAST>($1);
+    ast->data1.comp = RelExpAST::DATA1::COMP_GE;
+    ast->data1.add_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+EqExp
+  : RelExp {
+    auto ast = new EqExpAST();
+    ast->tag = 0;
+    ast->data0.rel_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | EqExp EQ RelExp {
+    auto ast = new EqExpAST();
+    ast->tag = 1;
+    ast->data1.eq_exp = unique_ptr<BaseAST>($1);
+    ast->data1.comp = EqExpAST::DATA1::COMP_EQ;
+    ast->data1.rel_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | EqExp NE RelExp {
+    auto ast = new EqExpAST();
+    ast->tag = 1;
+    ast->data1.eq_exp = unique_ptr<BaseAST>($1);
+    ast->data1.comp = EqExpAST::DATA1::COMP_NE;
+    ast->data1.rel_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  ;
+
+LAndExp
+  : EqExp {
+    auto ast = new LAndExpAST();
+    ast->tag = 0;
+    ast->data0.eq_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | LAndExp LAND EqExp {
+    auto ast = new LAndExpAST();
+    ast->tag = 1;
+    ast->data1.l_and_exp = unique_ptr<BaseAST>($1);
+    ast->data1.eq_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  };
+
+LOrExp
+  : LAndExp {
+    auto ast = new LOrExpAST();
+    ast->tag = 0;
+    ast->data0.l_and_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  } 
+  | LOrExp LOR LAndExp {
+    auto ast = new LOrExpAST();
+    ast->tag = 1;
+    ast->data1.l_or_exp = unique_ptr<BaseAST>($1);
+    ast->data1.l_and_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  } 
   ;
 
 %%
