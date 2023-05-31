@@ -7,12 +7,15 @@
 class RegAllocator {
 public:
     koopa_raw_value_t allocatedReg[15]; // 0-6:t0-t6, 7-14: a0-a7
+    int regLife[15];
     int allocatedNum;
 
     RegAllocator() {
         allocatedNum = 0;
-        for (int i = 0; i < 15;i++)
+        for (int i = 0; i < 15;i++) {
             allocatedReg[i] = nullptr;
+            regLife[i] = 0;
+        }
     }
 
     void GetRegUseIndex(int index, std::string &reg) {
@@ -22,22 +25,30 @@ public:
         else {
             reg = 'a' + std::to_string(index - 7);
         }
+        regLife[index]--;
+        if (regLife[index]==0) {
+            allocatedReg[index] = nullptr;
+        }
     }
 
     // find the allocated register of %ptr and set it to %reg.
     // allocate one if not exist.
-    void GetRegStr(const koopa_raw_value_t &ptr, std::string &reg) {
-        int end = (allocatedNum < 15) ? allocatedNum : 15;
-        for (int i = 0; i < end;i++){
+    void GetRegStr(const koopa_raw_value_t &ptr, std::string &reg, int life) {
+        int firstFree = -1;
+        for (int i = 0; i < 15;i++){
             if (allocatedReg[i] == ptr) {
                 GetRegUseIndex(i, reg);
                 return;
             }
+            else if (firstFree==-1 && allocatedReg[i]==nullptr) {
+                firstFree = i;
+            }
         }
 
-        int index = (allocatedNum++) % 15;
-        GetRegUseIndex(index, reg);
-        allocatedReg[index] = ptr;
+        assert(firstFree >= 0 && firstFree < 15);
+        regLife[firstFree] = life + 1;
+        GetRegUseIndex(firstFree, reg);
+        allocatedReg[firstFree] = ptr;
     }
 };
 
@@ -135,7 +146,7 @@ private:
         }
         else if (ret_value->kind.tag == KOOPA_RVT_BINARY) {
             std::string resultReg;
-            regs.GetRegStr(ret_value, resultReg);
+            regs.GetRegStr(ret_value, resultReg, 999);
             *riscv += "mv a0, " + resultReg + "\n";
             *riscv += "ret\n";
         }
@@ -152,7 +163,7 @@ private:
         koopa_raw_value_kind_t lhs_kind = binary.lhs->kind;
         koopa_raw_value_kind_t rhs_kind = binary.rhs->kind;
         std::string resultReg;
-        regs.GetRegStr(value, resultReg);
+        regs.GetRegStr(value, resultReg, 1);
         std::string r1Reg;
         std::string r2Reg;
 
@@ -210,7 +221,7 @@ private:
             r1Reg = resultReg;
         }
         else {
-            regs.GetRegStr(binary.lhs, r1Reg);
+            regs.GetRegStr(binary.lhs, r1Reg, 999);
         }
         if (rhs_kind.tag == KOOPA_RVT_INTEGER) {
             int imm = rhs_kind.data.integer.value;
@@ -218,7 +229,7 @@ private:
             r2Reg = resultReg;
         }
         else {
-            regs.GetRegStr(binary.rhs, r2Reg);
+            regs.GetRegStr(binary.rhs, r2Reg, 999);
         }
         
         switch (binary.op) {
