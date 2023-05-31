@@ -4,7 +4,7 @@
 #include <memory>
 #include <string>
 #include "IRAST.h"
-#include "RISCV.h"
+#include "toRISCV.h"
 
 using namespace std;
 
@@ -20,7 +20,7 @@ int main(int argc, const char *argv[]) {
   // 解析命令行参数. 测试脚本/评测平台要求你的编译器能接收如下参数:
   // compiler 模式 输入文件 -o 输出文件
   assert(argc == 5);
-  auto mode = argv[1];
+  string mode = argv[1];
   auto input = argv[2];
   auto output = argv[4];
 
@@ -33,18 +33,22 @@ int main(int argc, const char *argv[]) {
   auto ret = yyparse(ast);
   assert(!ret);
 
-  ast->Dump();
-  cout << endl;
+  //ast->Dump();
+  //cout << endl;
   string koopa = "";
+  string *riscv = new string;
   ast->GenKoopa(koopa);
+  //cout << koopa << endl;
 
   FILE *yyout;
   yyout = fopen(output, "w+");
-  fprintf(yyout, "%s", koopa.c_str());
-  //string *riscv = new string;
-  //toRISCV(koopa, riscv);
-
-  //fprintf(yyout, "%s", riscv->c_str());
-
+  if (mode == "-koopa") {
+    fprintf(yyout, "%s", koopa.c_str());
+  }
+  else if (mode == "-riscv") {
+    toRISCV(koopa, riscv);
+    fprintf(yyout, "%s", riscv->c_str());
+  }
+  delete riscv;
   return 0;
 }

@@ -5,3 +5,4 @@ docker.ps1
 run.sh
 /.vscode
 *.koopa
+*.riscv

@@ -168,7 +168,7 @@ UnaryOp
   | '-' {
     //std::cout <<"-\n";
     auto ast = new UnaryOpAST();
-    ast->op = UnaryOpAST::OP_MINUS;
+    ast->op = UnaryOpAST::OP_SUB;
     $$ = ast;
   }
   | '!' {
@@ -231,7 +231,7 @@ AddExp
     auto ast = new AddExpAST();
     ast->tag = 1;
     ast->data1.add_exp = unique_ptr<BaseAST>($1);
-    ast->data1.op = AddExpAST::DATA1::OP_MINUS;
+    ast->data1.op = AddExpAST::DATA1::OP_SUB;
     ast->data1.mul_exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }

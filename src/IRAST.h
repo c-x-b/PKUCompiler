@@ -207,7 +207,7 @@ public:
     enum UNARYOP
     {
         OP_PLUS,
-        OP_MINUS,
+        OP_SUB,
         OP_NOT
     } op;
 
@@ -216,7 +216,7 @@ public:
         case OP_PLUS:
             cout << "+";
             break;
-        case OP_MINUS:
+        case OP_SUB:
             cout << "-";
             break;
         case OP_NOT:
@@ -232,7 +232,7 @@ public:
         case OP_PLUS:
             // do nothing
             break;
-        case OP_MINUS:
+        case OP_SUB:
             str += "%" + to_string(id) + " = sub 0, %" + to_string(id - 1) + "\n";
             id++;
             break;
@@ -304,7 +304,7 @@ public:
         enum ADDOP
         {
             OP_ADD,
-            OP_MINUS
+            OP_SUB
         } op;
         unique_ptr<BaseAST> mul_exp;
     } data1;
@@ -327,7 +327,7 @@ public:
             case DATA1::OP_ADD:
                 binaryOP = "add ";
                 break;
-            case DATA1::OP_MINUS:
+            case DATA1::OP_SUB:
                 binaryOP = "sub ";
                 break;
             }
