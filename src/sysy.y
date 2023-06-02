@@ -44,11 +44,11 @@ using namespace std;
 
 // 非终结符的类型定义
 %type <ast_val> FuncDef FuncType 
-                Decl ConstDecl BType ConstDef ConstInitVal
+                Decl ConstDecl BType ConstDef ConstInitVal VarDecl VarDef InitVal
                 Block BlockItem Stmt 
                 Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
-%type <vec_val> ConstDefSet BlockItemSet
+%type <vec_val> ConstDefSet VarDefSet BlockItemSet
 
 %%
 
@@ -63,7 +63,14 @@ CompUnit
 Decl
   : ConstDecl {
     auto ast = new DeclAST();
-    ast->const_decl = unique_ptr<BaseAST>($1);
+    ast->tag = 0;
+    ast->data0.const_decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | VarDecl {
+    auto ast = new DeclAST();
+    ast->tag = 1;
+    ast->data1.var_decl = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -101,8 +108,8 @@ ConstDef
     ast->const_init_val = unique_ptr<BaseAST>($3);
     CalcResult result = ast->Calc();
     if (!result.err) {
-      int val = result.result;
-      symbol_table.insert(ast->ident, val);
+      Symbol sym(0, result.result);
+      symbol_table.insert(ast->ident, sym);
     }
     else 
       cout << "ConstInitVal Err!\n";
@@ -113,6 +120,55 @@ ConstInitVal
   : ConstExp{
     auto ast = new ConstInitValAST();
     ast->const_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+VarDecl
+  : BType VarDefSet ';' {
+    auto ast = new VarDeclAST();
+    ast->b_type = unique_ptr<BaseAST>($1);
+    ast->var_defs = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    $$ = ast;
+  } 
+  ;
+VarDefSet
+  : VarDef {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | VarDefSet ',' VarDef {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
+  ;
+VarDef
+  : IDENT {
+    auto ast = new VarDefAST();
+    ast->tag = 0;
+    ast->data0.ident = *unique_ptr<string>($1);
+    Symbol sym(1, 0);
+    symbol_table.insert(ast->data0.ident, sym);
+    $$ = ast;
+  }
+  | IDENT '=' InitVal {
+    //cout << "start" << endl;
+    auto ast = new VarDefAST();
+    ast->tag = 1;
+    ast->data1.ident = *unique_ptr<string>($1);
+    ast->data1.init_val = unique_ptr<BaseAST>($3);
+    //cout << "done1" << endl;
+    Symbol sym(1, 0);
+    symbol_table.insert(ast->data1.ident, sym);
+    //cout << "done2" << endl;
+    $$ = ast;
+  }
+  ;
+InitVal
+  : Exp {
+    auto ast = new InitValAST();
+    ast->exp = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   ;
@@ -168,9 +224,18 @@ BlockItem
   ;
 Stmt
   : RETURN Exp ';' {
-    //std::cout <<"Stmt\n";
+    //cout <<"Stmt return\n";
     auto ast = new StmtAST();
-    ast->exp = std::unique_ptr<BaseAST>($2);
+    ast->tag = 0;
+    ast->data0.exp = unique_ptr<BaseAST>($2);
+    //cout << "done" << endl;
+    $$ = ast;
+  }
+  | LVal '=' Exp ';' {
+    auto ast = new StmtAST(); 
+    ast->tag = 1;
+    ast->data1.l_val = dynamic_cast<LValAST*>($1)->ident;
+    ast->data1.exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
   ;

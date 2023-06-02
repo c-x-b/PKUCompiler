@@ -9,25 +9,53 @@
 using namespace std;
 
 static int id = 0;
+class BaseAST;
 
 struct CalcResult {
     bool err;
     int result;
 };
 
+struct Symbol {
+    int tag; // 0 const, 1 var
+    union {
+        int const_val;
+        int var_occupy; // no actual meaning
+    } data;
+
+    Symbol(int _tag, int val) {
+        if (_tag==0) {
+            tag = 0;
+            data.const_val = val;
+        }
+        else if (_tag==1) {
+            tag = 1;
+            data.var_occupy = val;
+        }
+    }
+    //Symbol(BaseAST *_var_ast) {
+    //    tag = 1;
+    //    data.var = _var_ast;
+    //}
+    Symbol() {
+        tag = -1;
+    }
+};
+
 class SymbolTable {
 public:
-    map<string, int> table;
+    map<string, Symbol> table;
 
     SymbolTable() { table.clear(); }
     bool check(const string &ident) {
         return (table.find(ident) != table.end());
     }
-    void insert(const string &ident, const int& val) {
+    void insert(const string &ident, const Symbol sym) {
+        //cout << "insert " << ident << endl;
         assert(!check(ident));
-        table[ident] = val;
+        table[ident] = sym;
     }
-    int find(const string &ident) {
+    Symbol find(const string &ident) {
         assert(check(ident));
         return table[ident];
     }
@@ -68,7 +96,7 @@ public:
     unique_ptr<BaseAST> func_def;
 
     void Dump() const override {
-        cout << "CompUnitAST { ";
+        cout << "CompUnitAST { \n";
         func_def->Dump();
         cout << " }";
     }
@@ -86,7 +114,7 @@ public:
     unique_ptr<BaseAST> block;
 
     void Dump() const override {
-        cout << "FuncDefAST { ";
+        cout << "FuncDefAST { \n";
         func_type->Dump();
         cout << ", " << ident << ", ";
         block->Dump();
@@ -118,14 +146,36 @@ public:
 
 class DeclAST : public BaseAST {
 public:
-    unique_ptr<BaseAST> const_decl;
+    int tag;
+    struct {
+        unique_ptr<BaseAST> const_decl;
+    } data0;
+    struct {
+        unique_ptr<BaseAST> var_decl;
+    } data1;
 
     void Dump() const override {
-        const_decl->Dump();
+        switch (tag) {
+        case 0:
+            cout << "const decl { \n";
+            data0.const_decl->Dump();
+            cout << "}";
+            break;
+        case 1:
+            cout << "var decl { \n";
+            cout << "}";
+            break;
+        }
     }
 
     void GenKoopa(string &str) const override {
-
+        switch(tag) {
+        case 0:
+            break;
+        case 1:
+            data1.var_decl->GenKoopa(str);
+            break;
+        }
     }
 };
 
@@ -194,12 +244,69 @@ public:
     }
 };
 
+class VarDeclAST : public BaseAST {
+public:
+    unique_ptr<BaseAST> b_type;
+    unique_ptr<vector<unique_ptr<BaseAST>>> var_defs;
+
+    void Dump() const override {
+
+    }
+
+    void GenKoopa(string &str) const override {
+        for (auto it = var_defs->begin(); it != var_defs->end();it++)
+            (*it)->GenKoopa(str);
+    }
+};
+
+class VarDefAST : public BaseAST {
+public:
+    int tag;
+    struct {
+        string ident;
+    } data0;
+    struct {
+        string ident;
+        unique_ptr<BaseAST> init_val;
+    } data1;
+
+    void Dump() const override {
+
+    }
+
+    void GenKoopa(string &str) const override {
+        switch(tag) {
+        case 0:
+            str += "@" + data0.ident + " = alloc i32\n";
+            break;
+        case 1:
+            str += "@" + data1.ident + " = alloc i32\n";
+            data1.init_val->GenKoopa(str);
+            str += "store %" + to_string(id - 1) + ", @" + data1.ident + "\n";
+            break;
+        }
+    }
+};
+
+class InitValAST : public BaseAST {
+public:
+    unique_ptr<BaseAST> exp;
+
+    void Dump() const override {
+
+    }
+
+    void GenKoopa(string &str) const override {
+        exp->GenKoopa(str);
+    }
+};
+
 class BlockAST : public BaseAST {
 public:
     unique_ptr<vector<unique_ptr<BaseAST>>> block_items;
 
     void Dump() const override {
-        cout << "BlockAST { ";
+        cout << "BlockAST { \n";
         for (auto it = block_items->begin(); it != block_items->end();it++)
             (*it)->Dump();
         cout << " }";
@@ -227,16 +334,16 @@ public:
     void Dump() const override {
         cout << "BlockItem ";
         if (tag==0) {
-            cout << "decl {";
+            cout << "decl {\n";
             data0.decl->Dump();
             cout << " }";
         }
         else {
-            cout << "stmt {";
+            cout << "stmt {\n";
             data1.stmt->Dump();
             cout << " }";
         }
-        cout << "; ";
+        cout << "; \n";
     }
 
     void GenKoopa(string &str) const override {
@@ -253,17 +360,39 @@ public:
 
 class StmtAST : public BaseAST {
 public:
-    unique_ptr<BaseAST> exp;
+    int tag;
+    struct {
+        unique_ptr<BaseAST> exp;
+    } data0;
+    struct {
+        string l_val;
+        unique_ptr<BaseAST> exp;
+    } data1;
 
     void Dump() const override {
-        cout << "StmtAST { ";
-        exp->Dump();
-        cout << " }";
+        switch (tag) {
+        case 0:
+            cout << "StmtAST { ";
+            data0.exp->Dump();
+            cout << " }";
+            break;
+        case 1:
+            
+            break;
+        }
     }
 
     void GenKoopa(string & str) const override {
-        exp->GenKoopa(str);
-        str += "ret %" + to_string(id - 1) + "\n";
+        switch (tag) {
+        case 0:
+            data0.exp->GenKoopa(str);
+            str += "ret %" + to_string(id - 1) + "\n";
+            break;
+        case 1:
+            data1.exp->GenKoopa(str);
+            str += "store %" + to_string(id - 1) + ", @" + data1.l_val + "\n";
+            break;
+        }
     }
 };
 
@@ -272,15 +401,18 @@ class ExpAST : public BaseAST {
 public:
     unique_ptr<BaseAST> l_or_exp;
 
-    void Dump() const override {
+    void Dump() const override
+    {
         l_or_exp->Dump();
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) const override
+    {
         l_or_exp->GenKoopa(str);
     }
 
-    CalcResult Calc() override {
+    CalcResult Calc() override
+    {
         return l_or_exp->Calc();
     }
 };
@@ -294,15 +426,24 @@ public:
     }
 
     void GenKoopa(string &str) const override {
-        int val = symbol_table.find(ident);
-        str += "%" + to_string(id++) + " = add 0, " + to_string(val) + "\n";
+        Symbol sym = symbol_table.find(ident);
+        switch(sym.tag) {
+        case 0:
+            str += "%" + to_string(id++) + " = add 0, " + to_string(sym.data.const_val) + "\n";
+            break;
+        case 1:
+            str += "%" + to_string(id++) + " = load @" + ident + "\n";
+            break;
+        }
     }
 
     CalcResult Calc() override {
         if (!symbol_table.check(ident))
             return CalcResult{1, 0};
-        else
-            return CalcResult{0, symbol_table.find(ident)};
+        else {
+            Symbol sym = symbol_table.find(ident);
+            return CalcResult{0, sym.data.const_val};
+        }
     }
 };
 

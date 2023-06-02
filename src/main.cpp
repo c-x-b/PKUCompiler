@@ -33,6 +33,7 @@ int main(int argc, const char *argv[]) {
   auto ret = yyparse(ast);
   assert(!ret);
 
+  //cout << "parse done" << endl;
   ast->Dump();
   cout << endl;
   string koopa = "";
