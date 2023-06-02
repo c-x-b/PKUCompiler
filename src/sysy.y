@@ -30,30 +30,28 @@ using namespace std;
 // 至于为什么要用字符串指针而不直接用 string 或者 unique_ptr<string>?
 // 请自行 STFW 在 union 里写一个带析构函数的类会出现什么情况
 %union {
-  std::string *str_val;
+  string *str_val;
   int int_val;
   BaseAST *ast_val;
+  vector<unique_ptr<BaseAST>> *vec_val;
 }
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN LE GE EQ NE LAND LOR
+%token INT RETURN LE GE EQ NE LAND LOR CONST
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType Block Stmt 
-                Exp PrimaryExp UnaryExp UnaryOp MulExp AddExp 
-                RelExp EqExp LAndExp LOrExp
+%type <ast_val> FuncDef FuncType 
+                Decl ConstDecl BType ConstDef ConstInitVal
+                Block BlockItem Stmt 
+                Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
+%type <vec_val> ConstDefSet BlockItemSet
 
 %%
 
-// 开始符, CompUnit ::= FuncDef, 大括号后声明了解析完成后 parser 要做的事情
-// 之前我们定义了 FuncDef 会返回一个 str_val, 也就是字符串指针
-// 而 parser 一旦解析完 CompUnit, 就说明所有的 token 都被解析了, 即解析结束了
-// 此时我们应该把 FuncDef 返回的结果收集起来, 作为 AST 传给调用 parser 的函数
-// $1 指代规则里第一个符号的返回值, 也就是 FuncDef 的返回值
 CompUnit
   : FuncDef {
     auto comp_unit = make_unique<CompUnitAST>();
@@ -62,16 +60,63 @@ CompUnit
   }
   ;
 
-// FuncDef ::= FuncType IDENT '(' ')' Block;
-// 我们这里可以直接写 '(' 和 ')', 因为之前在 lexer 里已经处理了单个字符的情况
-// 解析完成后, 把这些符号的结果收集起来, 然后拼成一个新的字符串, 作为结果返回
-// $$ 表示非终结符的返回值, 我们可以通过给这个符号赋值的方法来返回结果
-// 你可能会问, FuncType, IDENT 之类的结果已经是字符串指针了
-// 为什么还要用 unique_ptr 接住它们, 然后再解引用, 把它们拼成另一个字符串指针呢
-// 因为所有的字符串指针都是我们 new 出来的, new 出来的内存一定要 delete
-// 否则会发生内存泄漏, 而 unique_ptr 这种智能指针可以自动帮我们 delete
-// 虽然此处你看不出用 unique_ptr 和手动 delete 的区别, 但当我们定义了 AST 之后
-// 这种写法会省下很多内存管理的负担
+Decl
+  : ConstDecl {
+    auto ast = new DeclAST();
+    ast->const_decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+ConstDecl
+  : CONST BType ConstDefSet ';' {
+    auto ast = new ConstDeclAST();
+    ast->b_type = unique_ptr<BaseAST>($2);
+    ast->const_defs = unique_ptr<vector<unique_ptr<BaseAST>>>($3);
+    $$ = ast;
+  }
+  ;
+ConstDefSet
+  : ConstDef {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | ConstDefSet ',' ConstDef{
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
+  ;
+BType
+  : INT {
+    auto ast = new BTypeAST();
+    ast->type = "int";
+    $$ = ast;
+  }
+  ;
+ConstDef
+  : IDENT '=' ConstInitVal {
+    auto ast = new ConstDefAST();
+    ast->ident = *unique_ptr<string>($1);
+    ast->const_init_val = unique_ptr<BaseAST>($3);
+    CalcResult result = ast->Calc();
+    if (!result.err) {
+      int val = result.result;
+      symbol_table.insert(ast->ident, val);
+    }
+    else 
+      cout << "ConstInitVal Err!\n";
+    $$ = ast;
+  }
+  ;
+ConstInitVal 
+  : ConstExp{
+    auto ast = new ConstInitValAST();
+    ast->const_exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+
 FuncDef
   : FuncType IDENT '(' ')' Block {
     auto ast = new FuncDefAST();
@@ -81,8 +126,6 @@ FuncDef
     $$ = ast;
   }
   ;
-
-// 同上, 不再解释
 FuncType
   : INT {
     auto ast = new FuncTypeAST();
@@ -92,13 +135,37 @@ FuncType
   ;
 
 Block
-  : '{' Stmt '}' {
+  : '{' BlockItemSet '}' {
     auto ast = new BlockAST();
-    ast->stmt = unique_ptr<BaseAST>($2);
+    ast->block_items = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = ast;
   }
   ;
-
+BlockItemSet
+  : {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    $$ = vec;
+  }
+  | BlockItemSet BlockItem {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($2));
+    $$ = vec;
+  }
+  ;
+BlockItem
+  : Decl{
+    auto ast = new BlockItemAST();
+    ast->tag = 0;
+    ast->data0.decl = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | Stmt {
+    auto ast = new BlockItemAST();
+    ast->tag = 1;
+    ast->data1.stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
 Stmt
   : RETURN Exp ';' {
     //std::cout <<"Stmt\n";
@@ -116,7 +183,13 @@ Exp
     $$ = ast;
   }
   ;
-
+LVal
+  : IDENT {
+    auto ast = new LValAST();
+    ast->ident = *unique_ptr<string>($1);
+    $$ = ast;
+  }
+  ;
 PrimaryExp
   : '(' Exp ')' {
     //std::cout <<"PrimaryExp_(exp)\n";
@@ -132,14 +205,18 @@ PrimaryExp
     ast->data1.number = $1;
     $$ = ast;
   }
+  | LVal {
+    auto ast = new PrimaryExpAST();
+    ast->tag = 2;
+    ast->data2.l_val = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
   ;
-
 Number
   : INT_CONST {
     $$ = $1;
   }
   ;
-
 UnaryExp
   : PrimaryExp {
     //std::cout <<"UnaryExp_PrimaryExp\n";
@@ -157,12 +234,11 @@ UnaryExp
     $$ = ast;
   } 
   ;
-
 UnaryOp
   : '+' {
     //std::cout <<"+\n";
     auto ast = new UnaryOpAST();
-    ast->op = UnaryOpAST::OP_PLUS;
+    ast->op = UnaryOpAST::OP_ADD;
     $$ = ast;
   }
   | '-' {
@@ -178,7 +254,6 @@ UnaryOp
     $$ = ast;
   }
   ;
-
 MulExp
   : UnaryExp {
     auto ast = new MulExpAST();
@@ -211,7 +286,6 @@ MulExp
     $$ = ast;
   }
   ;
-
 AddExp
   : MulExp {
     auto ast = new AddExpAST();
@@ -236,7 +310,6 @@ AddExp
     $$ = ast;
   }
   ;
-
 RelExp
   : AddExp {
     auto ast = new RelExpAST();
@@ -277,7 +350,6 @@ RelExp
     $$ = ast;
   }
   ;
-
 EqExp
   : RelExp {
     auto ast = new EqExpAST();
@@ -302,7 +374,6 @@ EqExp
     $$ = ast;
   }
   ;
-
 LAndExp
   : EqExp {
     auto ast = new LAndExpAST();
@@ -317,7 +388,6 @@ LAndExp
     ast->data1.eq_exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   };
-
 LOrExp
   : LAndExp {
     auto ast = new LOrExpAST();
@@ -332,6 +402,14 @@ LOrExp
     ast->data1.l_and_exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   } 
+  ;
+ConstExp
+  : Exp {
+    auto ast = new ConstExpAST();
+    ast->exp = unique_ptr<BaseAST>($1);
+    ast->Calc();
+    $$ = ast;
+  }
   ;
 
 %%
