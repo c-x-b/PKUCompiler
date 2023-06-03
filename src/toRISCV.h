@@ -2,7 +2,10 @@
 #include <string>
 #include <cassert>
 #include <iostream>
+#include <map>
 #include "koopa.h"
+
+using namespace std;
 
 class RegAllocator {
 public:
@@ -18,12 +21,12 @@ public:
         }
     }
 
-    void GetRegUseIndex(int index, std::string &reg) {
+    void GetRegUseIndex(int index, string &reg) {
         if (index<=6) {
-            reg = "t" + std::to_string(index);
+            reg = "t" + to_string(index);
         }
         else {
-            reg = 'a' + std::to_string(index - 7);
+            reg = 'a' + to_string(index - 7);
         }
         regLife[index]--;
         if (regLife[index]==0) {
@@ -33,7 +36,7 @@ public:
 
     // find the allocated register of %ptr and set it to %reg.
     // allocate one if not exist.
-    void GetRegStr(const koopa_raw_value_t &ptr, std::string &reg, int life) {
+    void GetRegStr(const koopa_raw_value_t &ptr, string &reg, int life) {
         int firstFree = -1;
         for (int i = 0; i < 15;i++){
             if (allocatedReg[i] == ptr) {
@@ -52,9 +55,37 @@ public:
     }
 };
 
+class StackTable {
+public:
+    map<koopa_raw_value_t, int> table;
+    int usedSpace;
+
+    StackTable() {
+        table.clear();
+        usedSpace = 0;
+    }
+
+    bool check(const koopa_raw_value_t &ptr) {
+        return (table.find(ptr) != table.end());
+    }
+
+    // find the ptr in the map and return the int
+    // if not exist, create one and return
+    int access(const koopa_raw_value_t &ptr) {
+        if (check(ptr)) {
+            return table[ptr];
+        }
+        else {
+            table[ptr] = usedSpace;
+            usedSpace += 4;
+            return (usedSpace - 4);
+        }
+    }
+};
+
 class KoopaVisitor {
 public:
-    KoopaVisitor(std::string *target) { 
+    KoopaVisitor(string *target) { 
         riscv = target;
     }
 
@@ -69,8 +100,10 @@ public:
     }
 
 private:
-    std::string *riscv;
+    string *riscv;
     RegAllocator regs;
+    StackTable stackTable;
+    int stackSpace = 0;
 
     // 访问 raw slice
     void Visit(const koopa_raw_slice_t &slice) {
@@ -99,8 +132,8 @@ private:
     // 访问函数
     void Visit(const koopa_raw_function_t &func) {
         // 执行一些其他的必要操作
-        *riscv += ".global " + std::string(func->name+1) + "\n";
-        *riscv += std::string(func->name+1) + ":\n";
+        *riscv += ".global " + string(func->name+1) + "\n";
+        *riscv += string(func->name+1) + ":\n";
         // 访问所有基本块
         Visit(func->bbs);
     }
@@ -108,9 +141,19 @@ private:
     // 访问基本块
     void Visit(const koopa_raw_basic_block_t &bb) {
         // 执行一些其他的必要操作
-        // ...
+        int space = 0;
+        for (size_t i = 0; i < bb->insts.len; ++i) {
+            koopa_raw_value_t inst = reinterpret_cast<koopa_raw_value_t>(bb->insts.buffer[i]);
+            if (inst->ty->tag!=KOOPA_RTT_UNIT) {
+                space += 4;
+            }
+        }
+        space = ((space - 4) / 16 + 1) * 16;
+        *riscv += "addi sp, sp, -" + to_string(space) + "\n";
+        stackSpace = space;
         // 访问所有指令
         Visit(bb->insts);
+        
     }
 
     // 访问指令
@@ -130,6 +173,16 @@ private:
             // 访问 binary OP 指令
             VisitBinary(value);
             break;
+        case KOOPA_RVT_STORE:
+            VisitStore(kind.data.store);
+            break;
+        case KOOPA_RVT_LOAD:
+            VisitLoad(value);
+            break;
+        case KOOPA_RVT_ALLOC:
+            stackTable.access(value);
+            cout << "alloc\n";
+            break;
         default:
         // 其他类型暂时遇不到
         assert(false);
@@ -141,13 +194,21 @@ private:
         koopa_raw_value_t ret_value = ret.value;
         if (ret_value->kind.tag == KOOPA_RVT_INTEGER) {
             int32_t int_val = ret_value->kind.data.integer.value;
-            *riscv += "li a0, " + std::to_string(int_val) + "\n";
+            *riscv += "li a0, " + to_string(int_val) + "\n";
+            *riscv += "addi sp, sp, " + to_string(stackSpace) + "\n";
             *riscv += "ret\n";
         }
         else if (ret_value->kind.tag == KOOPA_RVT_BINARY) {
-            std::string resultReg;
+            string resultReg;
             regs.GetRegStr(ret_value, resultReg, 999);
             *riscv += "mv a0, " + resultReg + "\n";
+            *riscv += "addi sp, sp, " + to_string(stackSpace) + "\n";
+            *riscv += "ret\n";
+        }
+        else if (ret_value->kind.tag == KOOPA_RVT_LOAD) {
+            int loc = stackTable.access(ret_value);
+            *riscv += "lw a0, " + to_string(loc) + "(sp)\n";
+            *riscv += "addi sp, sp, " + to_string(stackSpace) + "\n";
             *riscv += "ret\n";
         }
     }
@@ -162,10 +223,10 @@ private:
         koopa_raw_binary_t binary = value->kind.data.binary;
         koopa_raw_value_kind_t lhs_kind = binary.lhs->kind;
         koopa_raw_value_kind_t rhs_kind = binary.rhs->kind;
-        std::string resultReg;
-        regs.GetRegStr(value, resultReg, 1);
-        std::string r1Reg;
-        std::string r2Reg;
+        string resultReg = "t0";
+        //regs.GetRegStr(value, resultReg, 1);
+        string r1Reg = "t1";
+        string r2Reg = "t2";
 
         // constant
         if (lhs_kind.tag == KOOPA_RVT_INTEGER && rhs_kind.tag == KOOPA_RVT_INTEGER) {
@@ -211,25 +272,31 @@ private:
                 imm = (lhs_kind.data.integer.value | rhs_kind.data.integer.value);
                 break;
             }
-            *riscv += "li " + resultReg + ", " + std::to_string(imm) + "\n";
+            *riscv += "li " + resultReg + ", " + to_string(imm) + "\n";
+            int loc = stackTable.access(value);
+            *riscv += "sw " + resultReg + ", " + to_string(loc) + "(sp)\n\n";
             return;
         }
 
         if (lhs_kind.tag == KOOPA_RVT_INTEGER) {
             int imm = lhs_kind.data.integer.value;
-            *riscv += "li " + resultReg + ", " + std::to_string(imm) + "\n";
-            r1Reg = resultReg;
+            //r1Reg = resultReg;
+            *riscv += "li " + r1Reg + ", " + to_string(imm) + "\n";
         }
         else {
-            regs.GetRegStr(binary.lhs, r1Reg, 999);
+            int loc = stackTable.access(binary.lhs);
+            *riscv += "lw " + r1Reg + ", " + to_string(loc) + "(sp)\n";
+            //regs.GetRegStr(binary.lhs, r1Reg, 999);
         }
         if (rhs_kind.tag == KOOPA_RVT_INTEGER) {
             int imm = rhs_kind.data.integer.value;
-            *riscv += "li " + resultReg + ", " + std::to_string(imm) + "\n";
-            r2Reg = resultReg;
+            //r2Reg = resultReg;
+            *riscv += "li " + r2Reg + ", " + to_string(imm) + "\n";
         }
         else {
-            regs.GetRegStr(binary.rhs, r2Reg, 999);
+            int loc = stackTable.access(binary.rhs);
+            *riscv += "lw " + r2Reg + ", " + to_string(loc) + "(sp)\n";
+            //regs.GetRegStr(binary.rhs, r2Reg, 999);
         }
         
         switch (binary.op) {
@@ -277,10 +344,36 @@ private:
             *riscv += "or " + resultReg + ", " + r1Reg + ", " + r2Reg + "\n";
             break;
         }
+
+        int loc = stackTable.access(value);
+        *riscv += "sw " + resultReg + ", " + to_string(loc) + "(sp)\n\n";
+    }
+
+    void VisitStore(const koopa_raw_store_t &store) {
+        if (store.value->kind.tag == KOOPA_RVT_INTEGER) {
+            int val = store.value->kind.data.integer.value;
+            *riscv += "li t0, " + to_string(val) + "\n";
+            int loc = stackTable.access(store.dest);
+            *riscv += "sw t0, " + to_string(loc) + "(sp)\n";
+        }
+        else {
+            int loc1 = stackTable.access(store.value);
+            *riscv += "lw t0, " + to_string(loc1) + "(sp)\n";
+            int loc2 = stackTable.access(store.dest);
+            *riscv += "sw t0, " + to_string(loc2) + "(sp)\n\n";
+        }
+    }
+
+    void VisitLoad(const koopa_raw_value_t &value) {
+        koopa_raw_load_t load = value->kind.data.load;
+        int loc1 = stackTable.access(load.src);
+        *riscv += "lw t0, " + to_string(loc1) + "(sp)\n";
+        int loc2 = stackTable.access(value);
+        *riscv += "sw t0, " + to_string(loc2) + "(sp)\n\n";
     }
 };
 
-void toRISCV(const std::string str, std::string *result) {
+void toRISCV(const string str, string *result) {
     // 解析字符串 str, 得到 Koopa IR 程序
     koopa_program_t program;
     koopa_error_code_t ret = koopa_parse_from_string(str.c_str(), &program);
@@ -294,7 +387,7 @@ void toRISCV(const std::string str, std::string *result) {
 
     KoopaVisitor visitor(result);
     visitor.Visit(raw);
-    //std::cout << *result;
+    //cout << *result;
 
     // 处理完成, 释放 raw program builder 占用的内存
     // 注意, raw program 中所有的指针指向的内存均为 raw program builder 的内存

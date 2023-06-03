@@ -34,7 +34,7 @@ int main(int argc, const char *argv[]) {
   assert(!ret);
 
   //cout << "parse done" << endl;
-  ast->Dump();
+  //ast->Dump();
   cout << endl;
   string koopa = "";
   string *riscv = new string;
