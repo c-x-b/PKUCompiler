@@ -11,7 +11,7 @@ using namespace std;
 static int id = 0;
 static int tableId = 0;
 static int blockId = 0;
-static bool lastRet = 0;
+static bool hasRet = 0;
 class BaseAST;
 
 struct CalcResult {
@@ -385,9 +385,8 @@ public:
     }
 
     void GenKoopa(string &str) const override {
-        if (lastRet) {
-            str += "%block_" + to_string(blockId++) + ":\n";
-            lastRet = 0;
+        if (hasRet) {
+            return;
         }
         switch(tag) {
         case 0:
@@ -443,7 +442,7 @@ public:
             //cout << "Stmt, ret;" << endl;
             data0.exp_or_none->GenKoopa(str);
             str += "ret %" + to_string(id - 1) + "\n";
-            lastRet = 1;
+            hasRet = 1;
             break;
         case 1:
             //cout << "Stmt, lval = exp;" << endl;
