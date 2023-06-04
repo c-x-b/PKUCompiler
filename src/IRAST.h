@@ -1093,17 +1093,23 @@ public:
             data0.eq_exp->GenKoopa(str);
             break;
         case 1:
+            string result = "%" + to_string(id++);
+            str += result + "= alloc i32\n";
+            str += "store 0, " + result + "\n";
             data1.l_and_exp->GenKoopa(str);
-            string r1 = "%" + to_string(id - 1);
+            str += "%" + to_string(id) + " = ne " + "%" + to_string(id - 1) + ", 0\n";
+            string flagThen = "%then_" + to_string(blockId++);
+            string flagEnd = "\%end_" + to_string(blockId++);
+            str += "br %" + to_string(id) + ", " + flagThen + ", " + flagEnd + "\n";
+            id++;
+            str += flagThen + ":\n";
             data1.eq_exp->GenKoopa(str);
-            string r2 = "%" + to_string(id - 1);
-            /*  r2 = ne 0, r0
-                r3 = ne 0, r1
-                r4 = and r2, r3
-            */
-            str += "%" + to_string(id++) + " = ne 0, " + r1 + "\n";
-            str += "%" + to_string(id++) + " = ne 0, " + r2 + "\n";
-            str += "%" + to_string(id) + " = and %" + to_string(id - 2) + ", %" + to_string(id - 1) + "\n";
+            str += "%" + to_string(id) + " = ne 0, %" + to_string(id - 1) + "\n";
+            id++;
+            str += "store %" + to_string(id - 1) + ", " + result + "\n";
+            str += "jump " + flagEnd + "\n";
+            str += flagEnd + ":\n";
+            str += "%" + to_string(id) + " = load " + result + "\n";
             id++;
             break;
         }
@@ -1142,14 +1148,23 @@ public:
             data0.l_and_exp->GenKoopa(str);
             break;
         case 1:
+            string result = "%" + to_string(id++);
+            str += result + "= alloc i32\n";
+            str += "store 1, " + result + "\n";
             data1.l_or_exp->GenKoopa(str);
-            string r1 = "%" + to_string(id - 1);
-            data1.l_and_exp->GenKoopa(str);
-            /*  r2 = or r0, r1
-                r3 = ne 0, r2   */   
-            str += "%" + to_string(id) + " = or " + r1 + ", %" + to_string(id - 1) + "\n";
+            str += "%" + to_string(id) + " = eq " + "%" + to_string(id - 1) + ", 0\n";
+            string flagThen = "%then_" + to_string(blockId++);
+            string flagEnd = "\%end_" + to_string(blockId++);
+            str += "br %" + to_string(id) + ", " + flagThen + ", " + flagEnd + "\n";
             id++;
+            str += flagThen + ":\n";
+            data1.l_and_exp->GenKoopa(str);
             str += "%" + to_string(id) + " = ne 0, %" + to_string(id - 1) + "\n";
+            id++;
+            str += "store %" + to_string(id - 1) + ", " + result + "\n";
+            str += "jump " + flagEnd + "\n";
+            str += flagEnd + ":\n";
+            str += "%" + to_string(id) + " = load " + result + "\n";
             id++;
             break;
         }
