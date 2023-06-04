@@ -10,6 +10,8 @@ using namespace std;
 
 static int id = 0;
 static int tableId = 0;
+static int blockId = 0;
+static bool lastRet = 0;
 class BaseAST;
 
 struct CalcResult {
@@ -34,10 +36,6 @@ struct Symbol {
             data.var_id = val;
         }
     }
-    //Symbol(BaseAST *_var_ast) {
-    //    tag = 1;
-    //    data.var = _var_ast;
-    //}
     Symbol() {
         tag = -1;
     }
@@ -55,8 +53,9 @@ public:
     void insert(const string &ident, Symbol sym) {
         //cout << "insert " << ident << endl;
         assert(!check(ident));
-        if (sym.tag==1) 
+        if (sym.tag==1) {
             sym.data.var_id = id;
+        }
         table[ident] = sym;
     }
     Symbol find(const string &ident) {
@@ -433,12 +432,16 @@ public:
     }
 
     void GenKoopa(string & str) const override {
+        if (lastRet) {
+            str += "%block_" + to_string(blockId++) + ":\n";
+        }
         SymbolTable *table;
         switch (tag) {
         case 0:
             //cout << "Stmt, ret;" << endl;
             data0.exp_or_none->GenKoopa(str);
             str += "ret %" + to_string(id - 1) + "\n";
+            lastRet = 1;
             break;
         case 1:
             //cout << "Stmt, lval = exp;" << endl;
