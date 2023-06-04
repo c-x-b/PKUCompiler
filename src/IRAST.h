@@ -244,6 +244,7 @@ public:
 
     void GenKoopa(string &str) const override {
         CalcResult result = const_init_val->Calc();
+        cout << ident << " " << result.err << " " << result.result << endl;
         if (!result.err) {
             Symbol sym(0, result.result);
             current_node->table.insert(ident, sym);
@@ -522,11 +523,14 @@ public:
     }
 
     CalcResult Calc() override {
+        if (current_node == nullptr)
+            return CalcResult{1, 0};
         SymbolTable *table = current_node->findTable(ident);
         if (!table || !table->check(ident))
             return CalcResult{1, 0};
         else {
             Symbol sym = table->find(ident);
+            assert(sym.tag == 0);
             return CalcResult{0, sym.data.const_val};
         }
     }
@@ -1058,8 +1062,6 @@ public:
     }
 
     CalcResult Calc() override {
-        CalcResult tmp = exp->Calc();
-        cout << tmp.err << " " << tmp.result << endl;
-        return tmp;
+        return exp->Calc();
     }
 };

@@ -484,7 +484,6 @@ ConstExp
   : Exp {
     auto ast = new ConstExpAST();
     ast->exp = unique_ptr<BaseAST>($1);
-    ast->Calc();
     $$ = ast;
   }
   ;
