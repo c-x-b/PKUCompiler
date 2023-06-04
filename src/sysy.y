@@ -38,15 +38,15 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN LE GE EQ NE LAND LOR CONST
+%token INT RETURN LE GE EQ NE LAND LOR CONST IF ELSE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
 %type <ast_val> FuncDef FuncType 
                 Decl ConstDecl BType ConstDef ConstInitVal VarDecl VarDef InitVal
-                Block BlockItem Stmt ExpOrNone
-                Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
+                Block BlockItem Stmt MatchedStmt OpenStmt
+                ExpOrNone Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
 %type <vec_val> ConstDefSet VarDefSet BlockItemSet
 
@@ -211,34 +211,75 @@ BlockItem
   }
   ;
 Stmt
+  : MatchedStmt {
+    auto ast = new StmtAST();
+    ast->tag = 0;
+    ast->data0.matched_stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | OpenStmt {
+    auto ast = new StmtAST();
+    ast->tag = 1;
+    ast->data1.open_stmt = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+MatchedStmt
   : RETURN ExpOrNone ';' {
     //cout <<"Stmt return\n";
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     ast->tag = 0;
     ast->data0.exp_or_none = unique_ptr<BaseAST>($2);
     //cout << "done" << endl;
     $$ = ast;
   }
   | LVal '=' Exp ';' {
-    auto ast = new StmtAST(); 
+    auto ast = new MatchedStmtAST(); 
     ast->tag = 1;
     ast->data1.l_val = dynamic_cast<LValAST*>($1)->ident;
     ast->data1.exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
   | ExpOrNone ';' {
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     ast->tag = 2;
     ast->data2.exp_or_none = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   | Block {
-    auto ast = new StmtAST();
+    auto ast = new MatchedStmtAST();
     ast->tag = 3;
     ast->data3.block = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
+  | IF '(' Exp ')' MatchedStmt ELSE MatchedStmt {
+    auto ast = new MatchedStmtAST();
+    ast->tag = 4;
+    ast->data4.exp = unique_ptr<BaseAST>($3);
+    ast->data4.matched_stmt1 = unique_ptr<BaseAST>($5);
+    ast->data4.matched_stmt2 = unique_ptr<BaseAST>($7);
+    $$ = ast;
+  }
   ;
+OpenStmt
+  : IF '(' Exp ')' Stmt {
+    auto ast = new OpenStmtAST();
+    ast->tag = 0;
+    ast->data0.exp = unique_ptr<BaseAST>($3);
+    ast->data0.stmt = unique_ptr<BaseAST>($5);
+    $$ = ast;
+  }
+  | IF '(' Exp ')' MatchedStmt ELSE OpenStmt {
+    auto ast = new OpenStmtAST();
+    ast->tag = 1;
+    ast->data1.exp = unique_ptr<BaseAST>($3);
+    ast->data1.matched_stmt = unique_ptr<BaseAST>($5);
+    ast->data1.open_stmt = unique_ptr<BaseAST>($7);
+    $$ = ast;
+  }
+  ;
+
+
 ExpOrNone
   : Exp {
     auto ast = new ExpOrNoneAST();
@@ -251,7 +292,6 @@ ExpOrNone
     $$ = ast;
   }
   ;
-
 Exp
   : LOrExp {
     //std::cout <<"Exp\n";

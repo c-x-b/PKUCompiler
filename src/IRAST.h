@@ -12,6 +12,7 @@ static int id = 0;
 static int tableId = 0;
 static int blockId = 0;
 static bool hasRet = 0;
+static bool withinIf = 0;
 class BaseAST;
 
 struct CalcResult {
@@ -190,7 +191,8 @@ public:
     }
 
     void GenKoopa(string &str) const override {
-        
+        if (hasRet)
+            return;
         switch(tag) {
         case 0:
             data0.const_decl->GenKoopa(str);
@@ -386,9 +388,6 @@ public:
     }
 
     void GenKoopa(string &str) const override {
-        if (hasRet) {
-            return;
-        }
         switch(tag) {
         case 0:
             data0.decl->GenKoopa(str);
@@ -404,6 +403,34 @@ class StmtAST : public BaseAST {
 public:
     int tag;
     struct {
+        unique_ptr<BaseAST> matched_stmt;
+    } data0;
+    struct {
+        unique_ptr<BaseAST> open_stmt;
+    } data1;
+
+    void Dump() const override {
+
+    }
+
+    void GenKoopa(string &str) const override {
+        if (hasRet)
+            return;
+        switch(tag) {
+        case 0:
+            data0.matched_stmt->GenKoopa(str);
+            break;
+        case 1:
+            data1.open_stmt->GenKoopa(str);
+            break;
+        }
+    }
+};
+
+class MatchedStmtAST : public BaseAST {
+public:
+    int tag;
+    struct {
         unique_ptr<BaseAST> exp_or_none;
     } data0;
     struct {
@@ -416,6 +443,11 @@ public:
     struct {
         unique_ptr<BaseAST> block;
     } data3;
+    struct {
+        unique_ptr<BaseAST> exp;
+        unique_ptr<BaseAST> matched_stmt1;
+        unique_ptr<BaseAST> matched_stmt2;
+    } data4;
 
     void Dump() const override {
         switch (tag) {
@@ -437,6 +469,8 @@ public:
     }
 
     void GenKoopa(string & str) const override {
+        if (hasRet)
+            return;
         SymbolTable *table;
         switch (tag) {
         case 0:
@@ -459,9 +493,94 @@ public:
             //cout << "Stmt, block" << endl;
             data3.block->GenKoopa(str);
             break;
+        case 4:
+            withinIf = 1;
+            data4.exp->GenKoopa(str);
+            string flagThen = "%then_" + to_string(blockId++);
+            string flagElse = "\%else_" + to_string(blockId++);
+            string flagEnd = "\%end_" + to_string(blockId++);
+            str += "br %" + to_string(id - 1) + ", " + flagThen + ", " + flagElse + "\n";
+            str += flagThen + ":\n";
+            data4.matched_stmt1->GenKoopa(str);
+            if (!hasRet) {
+                str += "jump " + flagEnd + "\n";
+            }
+            hasRet = 0;
+            str += flagElse + ":\n";
+            data4.matched_stmt2->GenKoopa(str);
+            if (!hasRet) {
+                str += "jump " + flagEnd + "\n";
+            }
+            hasRet = 0;
+            str += flagEnd + ":\n";
+            withinIf = 0;
+            hasRet = 0;
+            break;
         }
     }
 };
+
+class OpenStmtAST : public BaseAST {
+public:
+    int tag;
+    struct {
+        unique_ptr<BaseAST> exp;
+        unique_ptr<BaseAST> stmt;
+    } data0;
+    struct {
+        unique_ptr<BaseAST> exp;
+        unique_ptr<BaseAST> matched_stmt;
+        unique_ptr<BaseAST> open_stmt;
+    } data1;
+
+    void Dump() const override {
+
+    }
+
+    void GenKoopa(string &str) const override {
+        if (hasRet)
+            return;
+        withinIf = 1;
+        string flagThen, flagElse, flagEnd;
+        switch(tag) {
+        case 0:
+            data0.exp->GenKoopa(str);
+            flagThen = "%then_" + to_string(blockId++);
+            flagEnd = "\%end_" + to_string(blockId++);
+            str += "br %" + to_string(id - 1) + ", " + flagThen + ", " + flagEnd + "\n";
+            str += flagThen + ":\n";
+            data0.stmt->GenKoopa(str);
+            if (!hasRet) {
+                str += "jump " + flagEnd + "\n";
+            }
+            hasRet = 0;
+            str += flagEnd + ":\n";
+            break;
+        case 1:
+            data1.exp->GenKoopa(str);
+            flagThen = "%then_" + to_string(blockId++);
+            flagElse = "\%else_" + to_string(blockId++);
+            flagEnd = "\%end_" + to_string(blockId++);
+            str += "br %" + to_string(id - 1) + ", " + flagThen + ", " + flagElse + "\n";
+            str += flagThen + ":\n";
+            data1.matched_stmt->GenKoopa(str);
+            if (!hasRet) {
+                str += "jump " + flagEnd + "\n";
+            }
+            hasRet = 0;
+            str += flagElse + ":\n";
+            data1.open_stmt->GenKoopa(str);
+            if (!hasRet) {
+                str += "jump " + flagEnd + "\n";
+            }
+            hasRet = 0;
+            str += flagEnd + ":\n";
+            break;
+        }
+        withinIf = 0;
+    }
+};
+
 
 class ExpOrNoneAST : public BaseAST {
 public:
@@ -479,7 +598,6 @@ public:
         }
     }
 };
-
 
 class ExpAST : public BaseAST {
 public:
