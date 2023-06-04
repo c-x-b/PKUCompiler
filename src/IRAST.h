@@ -190,6 +190,7 @@ public:
     }
 
     void GenKoopa(string &str) const override {
+        
         switch(tag) {
         case 0:
             data0.const_decl->GenKoopa(str);
@@ -384,6 +385,10 @@ public:
     }
 
     void GenKoopa(string &str) const override {
+        if (lastRet) {
+            str += "%block_" + to_string(blockId++) + ":\n";
+            lastRet = 0;
+        }
         switch(tag) {
         case 0:
             data0.decl->GenKoopa(str);
@@ -432,9 +437,6 @@ public:
     }
 
     void GenKoopa(string & str) const override {
-        if (lastRet) {
-            str += "%block_" + to_string(blockId++) + ":\n";
-        }
         SymbolTable *table;
         switch (tag) {
         case 0:
