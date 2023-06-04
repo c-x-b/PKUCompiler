@@ -132,8 +132,23 @@ private:
     // 访问函数
     void Visit(const koopa_raw_function_t &func) {
         // 执行一些其他的必要操作
-        *riscv += ".global " + string(func->name+1) + "\n";
+        *riscv += ".global " + string(func->name + 1) + "\n";
         *riscv += string(func->name+1) + ":\n";
+
+        int space = 0;
+        for (size_t i = 0; i < func->bbs.len;i++) {
+            auto bb = reinterpret_cast<koopa_raw_basic_block_t>(func->bbs.buffer[i]);
+            for (size_t i = 0; i < bb->insts.len; ++i) {
+                koopa_raw_value_t inst = reinterpret_cast<koopa_raw_value_t>(bb->insts.buffer[i]);
+                if (inst->ty->tag!=KOOPA_RTT_UNIT) {
+                    space += 4;
+                }
+            }
+        }
+        space = ((space - 4) / 16 + 1) * 16;
+        *riscv += "addi sp, sp, -" + to_string(space) + "\n";
+        stackSpace = space;
+
         // 访问所有基本块
         Visit(func->bbs);
     }
@@ -141,16 +156,7 @@ private:
     // 访问基本块
     void Visit(const koopa_raw_basic_block_t &bb) {
         // 执行一些其他的必要操作
-        int space = 0;
-        for (size_t i = 0; i < bb->insts.len; ++i) {
-            koopa_raw_value_t inst = reinterpret_cast<koopa_raw_value_t>(bb->insts.buffer[i]);
-            if (inst->ty->tag!=KOOPA_RTT_UNIT) {
-                space += 4;
-            }
-        }
-        space = ((space - 4) / 16 + 1) * 16;
-        *riscv += "addi sp, sp, -" + to_string(space) + "\n";
-        stackSpace = space;
+        *riscv += string(bb->name + 1) + ":\n";
         // 访问所有指令
         Visit(bb->insts);
         
@@ -183,6 +189,12 @@ private:
             stackTable.access(value);
             cout << "alloc\n";
             break;
+        case KOOPA_RVT_BRANCH:
+            VisitBranch(kind.data.branch);
+            break;
+        case KOOPA_RVT_JUMP:
+            VisitJump(kind.data.jump);
+            break;
         default:
         // 其他类型暂时遇不到
         assert(false);
@@ -199,9 +211,8 @@ private:
             *riscv += "ret\n";
         }
         else if (ret_value->kind.tag == KOOPA_RVT_BINARY) {
-            string resultReg;
-            regs.GetRegStr(ret_value, resultReg, 999);
-            *riscv += "mv a0, " + resultReg + "\n";
+            int loc = stackTable.access(ret_value);
+            *riscv += "lw a0, " + to_string(loc) + "(sp)\n";
             *riscv += "addi sp, sp, " + to_string(stackSpace) + "\n";
             *riscv += "ret\n";
         }
@@ -370,6 +381,19 @@ private:
         *riscv += "lw t0, " + to_string(loc1) + "(sp)\n";
         int loc2 = stackTable.access(value);
         *riscv += "sw t0, " + to_string(loc2) + "(sp)\n\n";
+    }
+
+    void VisitBranch(const koopa_raw_branch_t &branch) {
+        int loc = stackTable.access(branch.cond);
+        *riscv += "lw t0, " + to_string(loc) + "(sp)\n";
+        *riscv += "bnez t0, " + string(branch.true_bb->name + 1) + "\n";
+        *riscv += "j " + string(branch.false_bb->name + 1) + "\n";
+        *riscv += "\n";
+    }
+
+    void VisitJump(const koopa_raw_jump_t &jump) {
+        *riscv += "j " + string(jump.target->name + 1) + "\n";
+        *riscv += "\n";
     }
 };
 
