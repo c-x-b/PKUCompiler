@@ -45,7 +45,7 @@ using namespace std;
 // 非终结符的类型定义
 %type <ast_val> FuncDef FuncType 
                 Decl ConstDecl BType ConstDef ConstInitVal VarDecl VarDef InitVal
-                Block BlockItem Stmt 
+                Block BlockItem Stmt ExpOrNone
                 Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
 %type <vec_val> ConstDefSet VarDefSet BlockItemSet
@@ -106,13 +106,6 @@ ConstDef
     auto ast = new ConstDefAST();
     ast->ident = *unique_ptr<string>($1);
     ast->const_init_val = unique_ptr<BaseAST>($3);
-    CalcResult result = ast->Calc();
-    if (!result.err) {
-      Symbol sym(0, result.result);
-      symbol_table.insert(ast->ident, sym);
-    }
-    else 
-      cout << "ConstInitVal Err!\n";
     $$ = ast;
   }
   ;
@@ -148,8 +141,6 @@ VarDef
     auto ast = new VarDefAST();
     ast->tag = 0;
     ast->data0.ident = *unique_ptr<string>($1);
-    Symbol sym(1, 0);
-    symbol_table.insert(ast->data0.ident, sym);
     $$ = ast;
   }
   | IDENT '=' InitVal {
@@ -159,9 +150,6 @@ VarDef
     ast->data1.ident = *unique_ptr<string>($1);
     ast->data1.init_val = unique_ptr<BaseAST>($3);
     //cout << "done1" << endl;
-    Symbol sym(1, 0);
-    symbol_table.insert(ast->data1.ident, sym);
-    //cout << "done2" << endl;
     $$ = ast;
   }
   ;
@@ -223,11 +211,11 @@ BlockItem
   }
   ;
 Stmt
-  : RETURN Exp ';' {
+  : RETURN ExpOrNone ';' {
     //cout <<"Stmt return\n";
     auto ast = new StmtAST();
     ast->tag = 0;
-    ast->data0.exp = unique_ptr<BaseAST>($2);
+    ast->data0.exp_or_none = unique_ptr<BaseAST>($2);
     //cout << "done" << endl;
     $$ = ast;
   }
@@ -236,6 +224,30 @@ Stmt
     ast->tag = 1;
     ast->data1.l_val = dynamic_cast<LValAST*>($1)->ident;
     ast->data1.exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | ExpOrNone ';' {
+    auto ast = new StmtAST();
+    ast->tag = 2;
+    ast->data2.exp_or_none = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | Block {
+    auto ast = new StmtAST();
+    ast->tag = 3;
+    ast->data3.block = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  ;
+ExpOrNone
+  : Exp {
+    auto ast = new ExpOrNoneAST();
+    ast->exp = unique_ptr<BaseAST>($1);
+    $$ = ast;
+  }
+  | {
+    auto ast = new ExpOrNoneAST();
+    ast->exp = nullptr;
     $$ = ast;
   }
   ;

@@ -9,6 +9,7 @@
 using namespace std;
 
 static int id = 0;
+static int tableId = 0;
 class BaseAST;
 
 struct CalcResult {
@@ -20,7 +21,7 @@ struct Symbol {
     int tag; // 0 const, 1 var
     union {
         int const_val;
-        int var_occupy; // no actual meaning
+        int var_id; // id, prevent duplicate names
     } data;
 
     Symbol(int _tag, int val) {
@@ -30,7 +31,7 @@ struct Symbol {
         }
         else if (_tag==1) {
             tag = 1;
-            data.var_occupy = val;
+            data.var_id = val;
         }
     }
     //Symbol(BaseAST *_var_ast) {
@@ -45,14 +46,17 @@ struct Symbol {
 class SymbolTable {
 public:
     map<string, Symbol> table;
+    int id;
 
     SymbolTable() { table.clear(); }
     bool check(const string &ident) {
         return (table.find(ident) != table.end());
     }
-    void insert(const string &ident, const Symbol sym) {
+    void insert(const string &ident, Symbol sym) {
         //cout << "insert " << ident << endl;
         assert(!check(ident));
+        if (sym.tag==1) 
+            sym.data.var_id = id;
         table[ident] = sym;
     }
     Symbol find(const string &ident) {
@@ -60,7 +64,23 @@ public:
         return table[ident];
     }
 };
-static SymbolTable symbol_table;
+struct SymbolTableNode {
+    SymbolTable table;
+    SymbolTableNode *parent;
+
+    SymbolTable* findTable(const string &ident) {
+        SymbolTableNode *ptr = this;
+        while (ptr != nullptr) {
+            if (ptr->table.check(ident))
+                return &(ptr->table);
+            ptr = ptr->parent;
+        }
+        return nullptr;
+    }
+};
+static SymbolTableNode *current_node = nullptr;
+//static SymbolTable symbol_table;
+
 
 // 所有 AST 的基类
 class BaseAST {
@@ -124,8 +144,10 @@ public:
     void GenKoopa(string & str) const override {
         str += "fun @" + ident + "(): ";
         func_type->GenKoopa(str);
-        str += " ";
+        str += " {\n";
+        str += "\%entry:\n";
         block->GenKoopa(str);
+        str += "}\n";
     }
 };
 
@@ -171,6 +193,7 @@ public:
     void GenKoopa(string &str) const override {
         switch(tag) {
         case 0:
+            data0.const_decl->GenKoopa(str);
             break;
         case 1:
             data1.var_decl->GenKoopa(str);
@@ -192,7 +215,8 @@ public:
     }
 
     void GenKoopa(string &str) const override {
-
+        for (auto it = const_defs->begin(); it != const_defs->end();it++)
+            (*it)->GenKoopa(str);
     }
 };
 
@@ -219,7 +243,13 @@ public:
     }
 
     void GenKoopa(string &str) const override {
-
+        CalcResult result = const_init_val->Calc();
+        if (!result.err) {
+            Symbol sym(0, result.result);
+            current_node->table.insert(ident, sym);
+        }
+        else 
+            cout << "ConstInitVal Err!\n";
     }
 
     CalcResult Calc() override {
@@ -275,14 +305,17 @@ public:
     }
 
     void GenKoopa(string &str) const override {
+        Symbol sym(1, 0);
         switch(tag) {
         case 0:
-            str += "@" + data0.ident + " = alloc i32\n";
+            current_node->table.insert(data0.ident, sym);
+            str += "@" + data0.ident + "_" + to_string(current_node->table.id) + " = alloc i32\n";
             break;
         case 1:
-            str += "@" + data1.ident + " = alloc i32\n";
+            current_node->table.insert(data1.ident, sym);
+            str += "@" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc i32\n";
             data1.init_val->GenKoopa(str);
-            str += "store %" + to_string(id - 1) + ", @" + data1.ident + "\n";
+            str += "store %" + to_string(id - 1) + ", @" + data1.ident + "_" + to_string(current_node->table.id) + "\n";
             break;
         }
     }
@@ -313,11 +346,16 @@ public:
     }
 
     void GenKoopa(string & str) const override {
-        str += "{\n";
-        str += "\%entry:\n";
+        //cout << "Block, Table " << tableId << endl;
+        SymbolTableNode *node = new SymbolTableNode;
+        node->parent = current_node;
+        node->table.id = tableId++;
+        current_node = node;
         for (auto it = block_items->begin(); it != block_items->end();it++)
             (*it)->GenKoopa(str);
-        str += "}";
+        current_node = node->parent;
+        //cout << "Block End, Table " << node->id << endl;
+        delete node;
     }   
 };
 
@@ -334,12 +372,12 @@ public:
     void Dump() const override {
         cout << "BlockItem ";
         if (tag==0) {
-            cout << "decl {\n";
+            //cout << "decl {\n";
             data0.decl->Dump();
             cout << " }";
         }
         else {
-            cout << "stmt {\n";
+            //cout << "stmt {\n";
             data1.stmt->Dump();
             cout << " }";
         }
@@ -362,36 +400,77 @@ class StmtAST : public BaseAST {
 public:
     int tag;
     struct {
-        unique_ptr<BaseAST> exp;
+        unique_ptr<BaseAST> exp_or_none;
     } data0;
     struct {
         string l_val;
         unique_ptr<BaseAST> exp;
     } data1;
+    struct {
+        unique_ptr<BaseAST> exp_or_none;
+    } data2;
+    struct {
+        unique_ptr<BaseAST> block;
+    } data3;
 
     void Dump() const override {
         switch (tag) {
         case 0:
             cout << "StmtAST { ";
-            data0.exp->Dump();
+            data0.exp_or_none->Dump();
             cout << " }";
             break;
         case 1:
             
             break;
+        case 2:
+
+            break;
+        case 3:
+
+            break;
         }
     }
 
     void GenKoopa(string & str) const override {
+        SymbolTable *table;
         switch (tag) {
         case 0:
-            data0.exp->GenKoopa(str);
+            //cout << "Stmt, ret;" << endl;
+            data0.exp_or_none->GenKoopa(str);
             str += "ret %" + to_string(id - 1) + "\n";
             break;
         case 1:
+            //cout << "Stmt, lval = exp;" << endl;
             data1.exp->GenKoopa(str);
-            str += "store %" + to_string(id - 1) + ", @" + data1.l_val + "\n";
+            table = current_node->findTable(data1.l_val);
+            str += "store %" + to_string(id - 1) + ", @" + data1.l_val + "_" + to_string(table->id) + "\n";
             break;
+        case 2:
+            //cout << "Stmt, exp;" << endl;
+            data2.exp_or_none->GenKoopa(str);
+            break;
+        case 3:
+            //cout << "Stmt, block" << endl;
+            data3.block->GenKoopa(str);
+            break;
+        }
+    }
+};
+
+class ExpOrNoneAST : public BaseAST {
+public:
+    unique_ptr<BaseAST> exp;
+
+    void Dump() const override {
+        if (exp) {
+            exp->Dump();
+        }
+    }
+
+    void GenKoopa(string &str) const override {
+        if (exp) {
+            exp->GenKoopa(str);
         }
     }
 };
@@ -426,22 +505,24 @@ public:
     }
 
     void GenKoopa(string &str) const override {
-        Symbol sym = symbol_table.find(ident);
+        SymbolTable *table = current_node->findTable(ident);
+        Symbol sym = table->find(ident);
         switch(sym.tag) {
         case 0:
             str += "%" + to_string(id++) + " = add 0, " + to_string(sym.data.const_val) + "\n";
             break;
         case 1:
-            str += "%" + to_string(id++) + " = load @" + ident + "\n";
+            str += "%" + to_string(id++) + " = load @" + ident + "_" + to_string(table->id) + "\n";
             break;
         }
     }
 
     CalcResult Calc() override {
-        if (!symbol_table.check(ident))
+        SymbolTable *table = current_node->findTable(ident);
+        if (!table || !table->check(ident))
             return CalcResult{1, 0};
         else {
-            Symbol sym = symbol_table.find(ident);
+            Symbol sym = table->find(ident);
             return CalcResult{0, sym.data.const_val};
         }
     }
