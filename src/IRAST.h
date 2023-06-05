@@ -149,6 +149,8 @@ public:
         str += " {\n";
         str += "\%entry:\n";
         block->GenKoopa(str);
+        if (!hasRet)
+            str += "ret 0\n";
         str += "}\n";
     }
 };
