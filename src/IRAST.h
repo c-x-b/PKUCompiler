@@ -448,6 +448,10 @@ public:
         unique_ptr<BaseAST> matched_stmt1;
         unique_ptr<BaseAST> matched_stmt2;
     } data4;
+    struct {
+        unique_ptr<BaseAST> exp;
+        unique_ptr<BaseAST> matched_stmt;
+    } data5;
 
     void Dump() const override {
         switch (tag) {
@@ -457,13 +461,14 @@ public:
             cout << " }";
             break;
         case 1:
-            
             break;
         case 2:
-
             break;
         case 3:
-
+            break;
+        case 4:
+            break;
+        case 5:
             break;
         }
     }
@@ -472,6 +477,9 @@ public:
         if (hasRet)
             return;
         SymbolTable *table;
+        string flagThen, flagElse, flagEnd;
+        string flagEntry, flagBody;
+        bool bothRet;
         switch (tag) {
         case 0:
             //cout << "Stmt, ret;" << endl;
@@ -495,11 +503,11 @@ public:
             break;
         case 4:
             withinIf = 1;
-            bool bothRet = 1;
+            bothRet = 1;
             data4.exp->GenKoopa(str);
-            string flagThen = "%then_" + to_string(blockId++);
-            string flagElse = "\%else_" + to_string(blockId++);
-            string flagEnd = "\%end_" + to_string(blockId++);
+            flagThen = "%then_" + to_string(blockId++);
+            flagElse = "\%else_" + to_string(blockId++);
+            flagEnd = "\%end_" + to_string(blockId++);
             str += "br %" + to_string(id - 1) + ", " + flagThen + ", " + flagElse + "\n";
             str += flagThen + ":\n";
             data4.matched_stmt1->GenKoopa(str);
@@ -519,6 +527,22 @@ public:
                 str += flagEnd + ":\n";
             withinIf = 0;
             break;
+        case 5:
+            flagEntry = "\%entry_" + to_string(blockId++);
+            flagBody = "%body_" + to_string(blockId++);
+            flagEnd = "\%end_" + to_string(blockId++);
+            str += "jump " + flagEntry + "\n";
+            str += flagEntry + ":\n";
+            data5.exp->GenKoopa(str);
+            str += "br %" + to_string(id - 1) + ", " + flagBody + ", " + flagEnd + "\n";
+            str += flagBody + ":\n";
+            data5.matched_stmt->GenKoopa(str);
+            if (!hasRet) {
+                str += "jump " + flagEntry + "\n";
+            }
+            hasRet = 0;
+            str += flagEnd + ":\n";
+            break;
         }
     }
 };
@@ -535,6 +559,10 @@ public:
         unique_ptr<BaseAST> matched_stmt;
         unique_ptr<BaseAST> open_stmt;
     } data1;
+    struct {
+        unique_ptr<BaseAST> exp;
+        unique_ptr<BaseAST> open_stmt;
+    } data2;
 
     void Dump() const override {
 
@@ -543,10 +571,12 @@ public:
     void GenKoopa(string &str) const override {
         if (hasRet)
             return;
-        withinIf = 1;
         string flagThen, flagElse, flagEnd;
+        string flagEntry, flagBody;
+        bool bothRet;
         switch(tag) {
         case 0:
+            withinIf = 1;
             data0.exp->GenKoopa(str);
             flagThen = "%then_" + to_string(blockId++);
             flagEnd = "\%end_" + to_string(blockId++);
@@ -558,9 +588,11 @@ public:
             }
             hasRet = 0;
             str += flagEnd + ":\n";
+            withinIf = 0;
             break;
         case 1:
-            bool bothRet = 1;
+            withinIf = 1;
+            bothRet = 1;
             data1.exp->GenKoopa(str);
             flagThen = "%then_" + to_string(blockId++);
             flagElse = "\%else_" + to_string(blockId++);
@@ -582,9 +614,25 @@ public:
             hasRet = bothRet;
             if (!hasRet)
                 str += flagEnd + ":\n";
+            withinIf = 0;
+            break;
+        case 2:
+            flagEntry = "\%entry_" + to_string(blockId++);
+            flagBody = "%body_" + to_string(blockId++);
+            flagEnd = "\%end_" + to_string(blockId++);
+            str += "jump " + flagEntry + "\n";
+            str += flagEntry + ":\n";
+            data2.exp->GenKoopa(str);
+            str += "br %" + to_string(id - 1) + ", " + flagBody + ", " + flagEnd + "\n";
+            str += flagBody + ":\n";
+            data2.open_stmt->GenKoopa(str);
+            if (!hasRet) {
+                str += "jump " + flagEntry + "\n";
+            }
+            hasRet = 0;
+            str += flagEnd + ":\n";
             break;
         }
-        withinIf = 0;
     }
 };
 

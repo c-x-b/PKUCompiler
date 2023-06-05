@@ -38,14 +38,14 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN LE GE EQ NE LAND LOR CONST IF ELSE
+%token INT RETURN LE GE EQ NE LAND LOR CONST IF ELSE WHILE
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
 %type <ast_val> FuncDef FuncType 
                 Decl ConstDecl BType ConstDef ConstInitVal VarDecl VarDef InitVal
-                Block BlockItem Stmt MatchedStmt OpenStmt
+                Block BlockItem Stmt MatchedStmt OpenStmt 
                 ExpOrNone Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
 %type <vec_val> ConstDefSet VarDefSet BlockItemSet
@@ -260,6 +260,13 @@ MatchedStmt
     ast->data4.matched_stmt2 = unique_ptr<BaseAST>($7);
     $$ = ast;
   }
+  | WHILE '(' Exp ')' MatchedStmt {
+    auto ast = new MatchedStmtAST();
+    ast->tag = 5;
+    ast->data5.exp = unique_ptr<BaseAST>($3);
+    ast->data5.matched_stmt = unique_ptr<BaseAST>($5);
+    $$ = ast;
+  }
   ;
 OpenStmt
   : IF '(' Exp ')' Stmt {
@@ -275,6 +282,13 @@ OpenStmt
     ast->data1.exp = unique_ptr<BaseAST>($3);
     ast->data1.matched_stmt = unique_ptr<BaseAST>($5);
     ast->data1.open_stmt = unique_ptr<BaseAST>($7);
+    $$ = ast;
+  }
+  | WHILE '(' Exp ')' OpenStmt {
+    auto ast = new OpenStmtAST();
+    ast->tag = 2;
+    ast->data2.exp = unique_ptr<BaseAST>($3);
+    ast->data2.open_stmt = unique_ptr<BaseAST>($5);
     $$ = ast;
   }
   ;
