@@ -495,6 +495,7 @@ public:
             break;
         case 4:
             withinIf = 1;
+            bool bothRet = 1;
             data4.exp->GenKoopa(str);
             string flagThen = "%then_" + to_string(blockId++);
             string flagElse = "\%else_" + to_string(blockId++);
@@ -504,17 +505,19 @@ public:
             data4.matched_stmt1->GenKoopa(str);
             if (!hasRet) {
                 str += "jump " + flagEnd + "\n";
+                bothRet = 0;
             }
             hasRet = 0;
             str += flagElse + ":\n";
             data4.matched_stmt2->GenKoopa(str);
             if (!hasRet) {
                 str += "jump " + flagEnd + "\n";
+                bothRet = 0;
             }
-            hasRet = 0;
-            str += flagEnd + ":\n";
+            hasRet = bothRet;
+            if (!hasRet)
+                str += flagEnd + ":\n";
             withinIf = 0;
-            hasRet = 0;
             break;
         }
     }
@@ -557,6 +560,7 @@ public:
             str += flagEnd + ":\n";
             break;
         case 1:
+            bool bothRet = 1;
             data1.exp->GenKoopa(str);
             flagThen = "%then_" + to_string(blockId++);
             flagElse = "\%else_" + to_string(blockId++);
@@ -566,15 +570,18 @@ public:
             data1.matched_stmt->GenKoopa(str);
             if (!hasRet) {
                 str += "jump " + flagEnd + "\n";
+                bothRet = 0;
             }
             hasRet = 0;
             str += flagElse + ":\n";
             data1.open_stmt->GenKoopa(str);
             if (!hasRet) {
                 str += "jump " + flagEnd + "\n";
+                bothRet = 0;
             }
-            hasRet = 0;
-            str += flagEnd + ":\n";
+            hasRet = bothRet;
+            if (!hasRet)
+                str += flagEnd + ":\n";
             break;
         }
         withinIf = 0;
