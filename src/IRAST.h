@@ -13,6 +13,8 @@ static int tableId = 0;
 static int blockId = 0;
 static bool hasRet = 0;
 static bool withinIf = 0;
+static string *curWhileEntry = nullptr;
+static string *curWhileEnd = nullptr;
 class BaseAST;
 
 struct CalcResult {
@@ -529,8 +531,10 @@ public:
             break;
         case 5:
             flagEntry = "\%entry_" + to_string(blockId++);
+            curWhileEntry = &flagEntry;
             flagBody = "%body_" + to_string(blockId++);
             flagEnd = "\%end_" + to_string(blockId++);
+            curWhileEnd = &flagEnd;
             str += "jump " + flagEntry + "\n";
             str += flagEntry + ":\n";
             data5.exp->GenKoopa(str);
@@ -542,6 +546,20 @@ public:
             }
             hasRet = 0;
             str += flagEnd + ":\n";
+            curWhileEntry = nullptr;
+            curWhileEnd = nullptr;
+            break;
+        case 6:
+            if (curWhileEnd) {
+                str += "jump " + *curWhileEnd + "\n";
+                str += "%body_" + to_string(blockId++) + ":\n";
+            }
+            break;
+        case 7:
+            if (curWhileEntry) {
+                str += "jump " + *curWhileEntry + "\n";
+                str += "%body_" + to_string(blockId++) + ":\n";
+            }
             break;
         }
     }
@@ -618,8 +636,10 @@ public:
             break;
         case 2:
             flagEntry = "\%entry_" + to_string(blockId++);
+            curWhileEntry = &flagEntry;
             flagBody = "%body_" + to_string(blockId++);
             flagEnd = "\%end_" + to_string(blockId++);
+            curWhileEnd = &flagEnd;
             str += "jump " + flagEntry + "\n";
             str += flagEntry + ":\n";
             data2.exp->GenKoopa(str);
@@ -631,6 +651,8 @@ public:
             }
             hasRet = 0;
             str += flagEnd + ":\n";
+            curWhileEntry = nullptr;
+            curWhileEnd = nullptr;
             break;
         }
     }
