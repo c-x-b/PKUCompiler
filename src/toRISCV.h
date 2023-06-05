@@ -208,7 +208,7 @@ private:
         if (ret_value->kind.tag == KOOPA_RVT_INTEGER) {
             int32_t int_val = ret_value->kind.data.integer.value;
             *riscv += "li a0, " + to_string(int_val) + "\n";
-            *riscv += "li t0, " + to_string(stackSpace);
+            *riscv += "li t0, " + to_string(stackSpace) + "\n";
             *riscv += "add sp, sp, t0\n";
             *riscv += "ret\n";
         }
