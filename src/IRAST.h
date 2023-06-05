@@ -481,6 +481,7 @@ public:
         SymbolTable *table;
         string flagThen, flagElse, flagEnd;
         string flagEntry, flagBody;
+        string *lastWhileEntry, *lastWhileEnd;
         bool bothRet;
         switch (tag) {
         case 0:
@@ -531,9 +532,11 @@ public:
             break;
         case 5:
             flagEntry = "\%entry_" + to_string(blockId++);
+            lastWhileEntry = curWhileEntry;
             curWhileEntry = &flagEntry;
             flagBody = "%body_" + to_string(blockId++);
             flagEnd = "\%end_" + to_string(blockId++);
+            lastWhileEnd = curWhileEnd;
             curWhileEnd = &flagEnd;
             str += "jump " + flagEntry + "\n";
             str += flagEntry + ":\n";
@@ -546,20 +549,18 @@ public:
             }
             hasRet = 0;
             str += flagEnd + ":\n";
-            curWhileEntry = nullptr;
-            curWhileEnd = nullptr;
+            curWhileEntry = lastWhileEntry;
+            curWhileEnd = lastWhileEnd;
             break;
         case 6:
-            if (curWhileEnd) {
-                str += "jump " + *curWhileEnd + "\n";
-                str += "%body_" + to_string(blockId++) + ":\n";
-            }
+            assert(curWhileEnd);
+            str += "jump " + *curWhileEnd + "\n";
+            str += "%body_" + to_string(blockId++) + ":\n";
             break;
         case 7:
-            if (curWhileEntry) {
-                str += "jump " + *curWhileEntry + "\n";
-                str += "%body_" + to_string(blockId++) + ":\n";
-            }
+            assert(curWhileEntry);
+            str += "jump " + *curWhileEntry + "\n";
+            str += "%body_" + to_string(blockId++) + ":\n";
             break;
         }
     }
@@ -591,6 +592,7 @@ public:
             return;
         string flagThen, flagElse, flagEnd;
         string flagEntry, flagBody;
+        string *lastWhileEntry, *lastWhileEnd;
         bool bothRet;
         switch(tag) {
         case 0:
@@ -636,9 +638,11 @@ public:
             break;
         case 2:
             flagEntry = "\%entry_" + to_string(blockId++);
+            lastWhileEntry = curWhileEntry;
             curWhileEntry = &flagEntry;
             flagBody = "%body_" + to_string(blockId++);
             flagEnd = "\%end_" + to_string(blockId++);
+            lastWhileEnd = curWhileEnd;
             curWhileEnd = &flagEnd;
             str += "jump " + flagEntry + "\n";
             str += flagEntry + ":\n";
@@ -651,8 +655,8 @@ public:
             }
             hasRet = 0;
             str += flagEnd + ":\n";
-            curWhileEntry = nullptr;
-            curWhileEnd = nullptr;
+            curWhileEntry = lastWhileEntry;
+            curWhileEnd = lastWhileEnd;
             break;
         }
     }
