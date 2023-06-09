@@ -278,7 +278,7 @@ MatchedStmt
     //cout <<"Stmt return\n";
     auto ast = new MatchedStmtAST();
     ast->tag = 0;
-    ast->data0.exp_or_none = unique_ptr<BaseAST>($2);
+    ast->data0.exp = unique_ptr<BaseAST>($2);
     //cout << "done" << endl;
     $$ = ast;
   }
@@ -292,7 +292,7 @@ MatchedStmt
   | ExpOrNone ';' {
     auto ast = new MatchedStmtAST();
     ast->tag = 2;
-    ast->data2.exp_or_none = unique_ptr<BaseAST>($1);
+    ast->data2.exp = unique_ptr<BaseAST>($1);
     $$ = ast;
   }
   | Block {
@@ -355,13 +355,11 @@ OpenStmt
 
 ExpOrNone
   : Exp {
-    auto ast = new ExpOrNoneAST();
-    ast->exp = unique_ptr<BaseAST>($1);
+    auto ast = $1;
     $$ = ast;
   }
   | {
-    auto ast = new ExpOrNoneAST();
-    ast->exp = nullptr;
+    BaseAST* ast = nullptr;
     $$ = ast;
   }
   ;

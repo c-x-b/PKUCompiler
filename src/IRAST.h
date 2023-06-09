@@ -12,6 +12,7 @@ static int id = 0;
 static int tableId = 0;
 static int blockId = 0;
 static bool hasRet = 0;
+static bool withinIntFunc = 0;
 static bool withinIf = 0;
 static string *curWhileEntry = nullptr;
 static string *curWhileEnd = nullptr;
@@ -221,14 +222,15 @@ public:
             str += "fun @" + data0.ident + "()";
             if (data0.func_type=="int") {
                 str += ": i32";
+                withinIntFunc = 1;
             }
             str += " {\n";
             str += "\%entry:\n";
             data0.block->GenKoopa(str);
             if (!hasRet) {
-                if (data0.func_type == "int")
+                if (withinIntFunc)
                     str += "ret 0\n";
-                else if (data0.func_type == "void")
+                else 
                     str += "ret\n";
             }
             hasRet = 0;
@@ -254,15 +256,16 @@ public:
             str += ")";
             if (data1.func_type=="int") {
                 str += ": i32";
+                withinIntFunc = 1;
             }
             str += " {\n";
             str += "\%entry:\n";
             GenParamsAllocKoopa(str);
             data1.block->GenKoopa(str);
             if (!hasRet) {
-                if (data1.func_type == "int")
+                if (withinIntFunc)
                     str += "ret 0\n";
-                else if (data1.func_type == "void")
+                else 
                     str += "ret\n";
             }
             hasRet = 0;
@@ -578,14 +581,14 @@ class MatchedStmtAST : public BaseAST {
 public:
     int tag;
     struct {
-        unique_ptr<BaseAST> exp_or_none;
+        unique_ptr<BaseAST> exp;
     } data0;
     struct {
         string l_val;
         unique_ptr<BaseAST> exp;
     } data1;
     struct {
-        unique_ptr<BaseAST> exp_or_none;
+        unique_ptr<BaseAST> exp;
     } data2;
     struct {
         unique_ptr<BaseAST> block;
@@ -604,7 +607,8 @@ public:
         switch (tag) {
         case 0:
             cout << "StmtAST { ";
-            data0.exp_or_none->Dump();
+            if (data0.exp!=nullptr)
+                data0.exp->Dump();
             cout << " }";
             break;
         case 1:
@@ -631,8 +635,23 @@ public:
         switch (tag) {
         case 0:
             //cout << "Stmt, ret;" << endl;
-            data0.exp_or_none->GenKoopa(str);
-            str += "ret %" + to_string(id - 1) + "\n";
+            if (data0.exp!=nullptr) {
+                if (withinIntFunc) {
+                    data0.exp->GenKoopa(str);
+                    str += "ret %" + to_string(id - 1) + "\n";
+                }
+                else {
+                    str += "ret\n";
+                }
+            }
+            else if (data0.exp==nullptr) {
+                if (withinIntFunc) {
+                    str += "ret 0\n";
+                }
+                else {
+                    str += "ret\n";
+                }
+            }
             hasRet = 1;
             break;
         case 1:
@@ -643,7 +662,9 @@ public:
             break;
         case 2:
             //cout << "Stmt, exp;" << endl;
-            data2.exp_or_none->GenKoopa(str);
+            if (data2.exp!=nullptr) {
+                data2.exp->GenKoopa(str);
+            }
             break;
         case 3:
             //cout << "Stmt, block" << endl;
@@ -807,23 +828,6 @@ public:
     }
 };
 
-
-class ExpOrNoneAST : public BaseAST {
-public:
-    unique_ptr<BaseAST> exp;
-
-    void Dump() const override {
-        if (exp) {
-            exp->Dump();
-        }
-    }
-
-    void GenKoopa(string &str) const override {
-        if (exp) {
-            exp->GenKoopa(str);
-        }
-    }
-};
 
 class ExpAST : public BaseAST {
 public:
