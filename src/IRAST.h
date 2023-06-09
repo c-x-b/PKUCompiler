@@ -234,6 +234,7 @@ public:
                     str += "ret\n";
             }
             hasRet = 0;
+            withinIntFunc = 0;
             str += "}\n\n";
             break;
         case 1:
@@ -269,6 +270,7 @@ public:
                     str += "ret\n";
             }
             hasRet = 0;
+            withinIntFunc = 0;
             str += "}\n\n";
             current_node = node->parent;
             delete node;
