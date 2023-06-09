@@ -44,29 +44,39 @@ using namespace std;
 
 // 非终结符的类型定义
 %type <ast_val> FuncDef FuncFParam 
-                Decl ConstDecl BType ConstDef ConstInitVal VarDecl VarDef InitVal
+                Decl ConstDecl ConstDef ConstInitVal VarDecl VarDef InitVal
                 Block BlockItem Stmt MatchedStmt OpenStmt 
                 ExpOrNone Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
-%type <vec_val> FuncDefSet ConstDefSet VarDefSet FuncFParams BlockItemSet FuncRParams
-%type <str_val> FuncType
+%type <vec_val> CompUnitSet ConstDefSet VarDefSet FuncFParams BlockItemSet FuncRParams
+%type <str_val> Type
 
 %%
 
 CompUnit
-  : FuncDefSet {
+  : CompUnitSet {
     auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_defs = unique_ptr<vector<unique_ptr<BaseAST>>>($1);
+    comp_unit->comp_units = unique_ptr<vector<unique_ptr<BaseAST>>>($1);
     ast = move(comp_unit);
   }
   ;
-FuncDefSet
+CompUnitSet
   : FuncDef {
     auto vec = new vector<unique_ptr<BaseAST>>;
     vec->push_back(unique_ptr<BaseAST>($1));
     $$ = vec;
   }
-  | FuncDefSet FuncDef {
+  | Decl {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | CompUnitSet FuncDef {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($2));
+    $$ = vec;
+  }
+  | CompUnitSet Decl {
     auto vec = $1;
     vec->push_back(unique_ptr<BaseAST>($2));
     $$ = vec;
@@ -88,9 +98,9 @@ Decl
   }
   ;
 ConstDecl
-  : CONST BType ConstDefSet ';' {
+  : CONST Type ConstDefSet ';' {
     auto ast = new ConstDeclAST();
-    ast->b_type = unique_ptr<BaseAST>($2);
+    ast->b_type = *($2);
     ast->const_defs = unique_ptr<vector<unique_ptr<BaseAST>>>($3);
     $$ = ast;
   }
@@ -105,13 +115,6 @@ ConstDefSet
     auto vec = $1;
     vec->push_back(unique_ptr<BaseAST>($3));
     $$ = vec;
-  }
-  ;
-BType
-  : INT {
-    auto ast = new BTypeAST();
-    ast->type = "int";
-    $$ = ast;
   }
   ;
 ConstDef
@@ -130,9 +133,9 @@ ConstInitVal
   }
   ;
 VarDecl
-  : BType VarDefSet ';' {
+  : Type VarDefSet ';' {
     auto ast = new VarDeclAST();
-    ast->b_type = unique_ptr<BaseAST>($1);
+    ast->b_type = *($1);
     ast->var_defs = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = ast;
   } 
@@ -175,7 +178,7 @@ InitVal
   ;
 
 FuncDef
-  : FuncType IDENT '(' ')' Block {
+  : Type IDENT '(' ')' Block {
     auto ast = new FuncDefAST();
     ast->tag = 0;
     ast->data0.func_type = *($1);
@@ -183,7 +186,7 @@ FuncDef
     ast->data0.block = unique_ptr<BaseAST>($5);
     $$ = ast;
   }
-  | FuncType IDENT '(' FuncFParams ')' Block {
+  | Type IDENT '(' FuncFParams ')' Block {
     auto ast = new FuncDefAST();
     ast->tag = 1;
     ast->data1.func_type = *($1);
@@ -193,7 +196,7 @@ FuncDef
     $$ = ast;
   }
   ;
-FuncType
+Type
   : INT {
     string *str = new string("int");
     $$ = str;
@@ -216,9 +219,9 @@ FuncFParams
   }
   ;
 FuncFParam 
-  : BType IDENT {
+  : Type IDENT {
     auto ast = new FuncFParamAST();
-    ast->b_type = unique_ptr<BaseAST>($1);
+    ast->b_type = *($1);
     ast->ident = *($2);
     $$ = ast;
   }

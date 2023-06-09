@@ -127,11 +127,34 @@ public:
 class CompUnitAST : public BaseAST {
 public:
   // 用智能指针管理对象
-    unique_ptr<vector<unique_ptr<BaseAST>>> func_defs;
+    unique_ptr<vector<unique_ptr<BaseAST>>> comp_units;
+
+    void GenLibFuncKoopa(string & str) const {
+        Symbol hasRet(2, 1);
+        Symbol withoutRet(2, 0);
+
+        str += "decl @getint(): i32\n";
+        current_node->table.insert("getint", hasRet);
+        str += "decl @getch(): i32\n";
+        current_node->table.insert("getch", hasRet);
+        str += "decl @getarray(*i32): i32\n";
+        current_node->table.insert("getarray", hasRet);
+        str += "decl @putint(i32)\n";
+        current_node->table.insert("putint", withoutRet);
+        str += "decl @putch(i32)\n";
+        current_node->table.insert("putch", withoutRet);
+        str += "decl @putarray(i32, *i32)\n";
+        current_node->table.insert("putarray", withoutRet);
+        str += "decl @starttime()\n";
+        current_node->table.insert("starttime", withoutRet);
+        str += "decl @stoptime()\n";
+        current_node->table.insert("stoptime", withoutRet);
+        str += "\n";
+    }
 
     void Dump() const override {
         cout << "CompUnitAST { \n";
-        for (auto it = func_defs->begin(); it != func_defs->end();it++) {
+        for (auto it = comp_units->begin(); it != comp_units->end();it++) {
             (*it)->Dump();
         }
         cout << " }";
@@ -142,7 +165,8 @@ public:
         node->parent = current_node;
         node->table.id = tableId++;
         current_node = node;
-        for (auto it = func_defs->begin(); it != func_defs->end();it++) {
+        GenLibFuncKoopa(str);
+        for (auto it = comp_units->begin(); it != comp_units->end();it++) {
             (*it)->GenKoopa(str);
         }
         current_node = node->parent;
@@ -208,7 +232,7 @@ public:
                     str += "ret\n";
             }
             hasRet = 0;
-            str += "}\n";
+            str += "}\n\n";
             break;
         case 1:
             //cout << "GenKoopa: " << data1.ident << endl;
@@ -242,7 +266,7 @@ public:
                     str += "ret\n";
             }
             hasRet = 0;
-            str += "}\n";
+            str += "}\n\n";
             current_node = node->parent;
             delete node;
             break;
@@ -266,7 +290,7 @@ public:
 
 class FuncFParamAST : public BaseAST {
 public:
-    unique_ptr<BaseAST> b_type;
+    string b_type;
     string ident;
 
     void Dump() const override {
@@ -278,7 +302,8 @@ public:
         Symbol sym(1, 0);
         current_node->table.insert(ident, sym);
         str += "@" + ident;
-        b_type->GenKoopa(str);
+        if (b_type == "int")
+            str += ": i32";
     }
 };
 
@@ -322,7 +347,7 @@ public:
 
 class ConstDeclAST : public BaseAST {
 public:
-    unique_ptr<BaseAST> b_type;
+    string b_type;
     unique_ptr<vector<unique_ptr<BaseAST>>> const_defs;
 
     void Dump() const override {
@@ -333,22 +358,9 @@ public:
     }
 
     void GenKoopa(string &str) const override {
+        assert(b_type == "int");
         for (auto it = const_defs->begin(); it != const_defs->end();it++)
             (*it)->GenKoopa(str);
-    }
-};
-
-class BTypeAST : public BaseAST {
-public:
-    string type;
-
-    void Dump() const override {
-
-    }
-
-    void GenKoopa(string &str) const override {
-        if (type == "int")
-            str += ": i32";
     }
 };
 
@@ -396,7 +408,7 @@ public:
 
 class VarDeclAST : public BaseAST {
 public:
-    unique_ptr<BaseAST> b_type;
+    string b_type;
     unique_ptr<vector<unique_ptr<BaseAST>>> var_defs;
 
     void Dump() const override {
@@ -404,6 +416,7 @@ public:
     }
 
     void GenKoopa(string &str) const override {
+        assert(b_type == "int");
         for (auto it = var_defs->begin(); it != var_defs->end();it++)
             (*it)->GenKoopa(str);
     }
@@ -426,16 +439,28 @@ public:
 
     void GenKoopa(string &str) const override {
         Symbol sym(1, 0);
+        bool global = (current_node->parent == nullptr);
         switch(tag) {
         case 0:
             current_node->table.insert(data0.ident, sym);
-            str += "@" + data0.ident + "_" + to_string(current_node->table.id) + " = alloc i32\n";
+            if (!global)
+                str += "@" + data0.ident + "_" + to_string(current_node->table.id) + " = alloc i32\n";
+            else 
+                str += "global @" + data0.ident + "_" + to_string(current_node->table.id) + " = alloc i32, zeroinit\n\n";
             break;
         case 1:
             current_node->table.insert(data1.ident, sym);
-            str += "@" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc i32\n";
-            data1.init_val->GenKoopa(str);
-            str += "store %" + to_string(id - 1) + ", @" + data1.ident + "_" + to_string(current_node->table.id) + "\n";
+            if (!global) {
+                str += "@" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc i32\n";
+                data1.init_val->GenKoopa(str);
+                str += "store %" + to_string(id - 1) + ", @" + data1.ident + "_" + to_string(current_node->table.id) + "\n";
+            }
+            else {
+                str += "global @" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc i32, ";
+                CalcResult result = data1.init_val->Calc();
+                cout << "global " << data1.ident << " " << result.err << " " << result.result << endl;
+                str += to_string(result.result) + "\n\n";
+            }
             break;
         }
     }
@@ -451,6 +476,11 @@ public:
 
     void GenKoopa(string &str) const override {
         exp->GenKoopa(str);
+    }
+
+    CalcResult Calc() override
+    {
+        return exp->Calc();
     }
 };
 
