@@ -23,10 +23,11 @@ struct CalcResult {
 };
 
 struct Symbol {
-    int tag; // 0 const, 1 var
+    int tag; // 0 const, 1 var, 2 func
     union {
         int const_val;
         int var_id; // id, prevent duplicate names
+        int func_has_ret; // if func has ret
     } data;
 
     Symbol(int _tag, int val) {
@@ -37,6 +38,10 @@ struct Symbol {
         else if (_tag==1) {
             tag = 1;
             data.var_id = val;
+        }
+        else if (_tag==2) {
+            tag = 2;
+            data.func_has_ret = val;
         }
     }
     Symbol() {
@@ -79,6 +84,13 @@ struct SymbolTableNode {
         }
         return nullptr;
     }
+    SymbolTable* findRootTable() {
+        SymbolTableNode *ptr = this;
+        while (ptr->parent != nullptr) {
+            ptr = ptr->parent;
+        }
+        return &(ptr->table);
+    }
 };
 static SymbolTableNode *current_node = nullptr;
 //static SymbolTable symbol_table;
@@ -115,43 +127,126 @@ public:
 class CompUnitAST : public BaseAST {
 public:
   // 用智能指针管理对象
-    unique_ptr<BaseAST> func_def;
+    unique_ptr<vector<unique_ptr<BaseAST>>> func_defs;
 
     void Dump() const override {
         cout << "CompUnitAST { \n";
-        func_def->Dump();
+        for (auto it = func_defs->begin(); it != func_defs->end();it++) {
+            (*it)->Dump();
+        }
         cout << " }";
     }
 
     void GenKoopa(string & str) const override {
-        func_def->GenKoopa(str);
+        SymbolTableNode *node = new SymbolTableNode;
+        node->parent = current_node;
+        node->table.id = tableId++;
+        current_node = node;
+        for (auto it = func_defs->begin(); it != func_defs->end();it++) {
+            (*it)->GenKoopa(str);
+        }
+        current_node = node->parent;
+        delete node;
     }
 };
 
 
 class FuncDefAST : public BaseAST {
 public:
-    unique_ptr<BaseAST> func_type;
-    string ident;
-    unique_ptr<BaseAST> block;
+    int tag;
+    struct {
+        string func_type;
+        string ident;
+        unique_ptr<BaseAST> block;
+    } data0;
+    struct {
+        string func_type;
+        string ident;
+        unique_ptr<vector<unique_ptr<BaseAST>>> func_f_params;
+        unique_ptr<BaseAST> block;
+    } data1;
+
+    void GenParamsAllocKoopa(string &str) const {
+        SymbolTableNode *ParamNode = current_node;
+        map<string, Symbol> *ParamTable = &(ParamNode->table.table);
+        for (auto it = ParamTable->begin(); it != ParamTable->end();it++) {
+            string ident = it->first;
+            cout << ident << endl;
+            string id = ident + "_" + to_string(ParamNode->table.id);
+            str += "@" + id + " = alloc i32\n";
+            str += "store @" + ident + ", @" + id + "\n";
+        }
+    }
 
     void Dump() const override {
-        cout << "FuncDefAST { \n";
-        func_type->Dump();
-        cout << ", " << ident << ", ";
-        block->Dump();
-        cout << " }";
+        // cout << "FuncDefAST { \n";
+        // func_type->Dump();
+        // cout << ", " << ident << ", ";
+        // block->Dump();
+        // cout << " }";
     }
 
     void GenKoopa(string & str) const override {
-        str += "fun @" + ident + "(): ";
-        func_type->GenKoopa(str);
-        str += " {\n";
-        str += "\%entry:\n";
-        block->GenKoopa(str);
-        if (!hasRet)
-            str += "ret 0\n";
-        str += "}\n";
+        //cout << "tag: " << tag << endl;
+        Symbol sym(2, 0);
+        switch(tag) {
+        case 0:
+            //cout << "GenKoopa: " << data0.ident << endl;
+            sym.data.func_has_ret = (data0.func_type == "int") ? 1 : 0;
+            current_node->table.insert(data0.ident, sym);
+            str += "fun @" + data0.ident + "()";
+            if (data0.func_type=="int") {
+                str += ": i32";
+            }
+            str += " {\n";
+            str += "\%entry:\n";
+            data0.block->GenKoopa(str);
+            if (!hasRet) {
+                if (data0.func_type == "int")
+                    str += "ret 0\n";
+                else if (data0.func_type == "void")
+                    str += "ret\n";
+            }
+            hasRet = 0;
+            str += "}\n";
+            break;
+        case 1:
+            //cout << "GenKoopa: " << data1.ident << endl;
+            sym.data.func_has_ret = (data1.func_type == "int") ? 1 : 0;
+            current_node->table.insert(data1.ident, sym);
+            SymbolTableNode *node = new SymbolTableNode;
+            node->parent = current_node;
+            node->table.id = tableId++;
+            current_node = node;
+            str += "fun @" + data1.ident + "(";
+            bool first = true;
+            for (auto it = data1.func_f_params->begin(); it != data1.func_f_params->end();it++) {
+                if (!first)
+                    str += ", ";
+                (*it)->GenKoopa(str);
+                first = 0;
+            }
+            //cout << "params done\n";
+            str += ")";
+            if (data1.func_type=="int") {
+                str += ": i32";
+            }
+            str += " {\n";
+            str += "\%entry:\n";
+            GenParamsAllocKoopa(str);
+            data1.block->GenKoopa(str);
+            if (!hasRet) {
+                if (data1.func_type == "int")
+                    str += "ret 0\n";
+                else if (data1.func_type == "void")
+                    str += "ret\n";
+            }
+            hasRet = 0;
+            str += "}\n";
+            current_node = node->parent;
+            delete node;
+            break;
+        }
     }
 };
 
@@ -165,10 +260,27 @@ public:
 
     void GenKoopa(string & str) const override {
         if (type == "int")
-            str += "i32";
+            str += ": i32";
     }
 };
 
+class FuncFParamAST : public BaseAST {
+public:
+    unique_ptr<BaseAST> b_type;
+    string ident;
+
+    void Dump() const override {
+
+    }
+
+    void GenKoopa(string &str) const override {
+        //cout << ident << endl;
+        Symbol sym(1, 0);
+        current_node->table.insert(ident, sym);
+        str += "@" + ident;
+        b_type->GenKoopa(str);
+    }
+};
 
 class DeclAST : public BaseAST {
 public:
@@ -235,7 +347,8 @@ public:
     }
 
     void GenKoopa(string &str) const override {
-
+        if (type == "int")
+            str += ": i32";
     }
 };
 
@@ -802,6 +915,13 @@ public:
         unique_ptr<BaseAST> unary_op;
         unique_ptr<BaseAST> unary_exp;
     } data1;
+    struct {
+        string ident;
+    } data2;
+    struct {
+        string ident;
+        unique_ptr<vector<unique_ptr<BaseAST>>> exps;
+    } data3;
 
     void Dump() const override {
         switch(tag) {
@@ -816,6 +936,8 @@ public:
     }
 
     void GenKoopa(string & str) const override {
+        SymbolTable *funcTable;
+        Symbol funcSym;
         switch(tag) {
         case 0:
             data0.primary_exp->GenKoopa(str);
@@ -823,6 +945,48 @@ public:
         case 1:
             data1.unary_exp->GenKoopa(str);
             data1.unary_op->GenKoopa(str);
+            break;
+        case 2:
+            funcTable = current_node->findRootTable();
+            funcSym = funcTable->find(data2.ident);
+            assert(funcSym.tag == 2);
+            if (funcSym.data.func_has_ret) {
+                str += "%" + to_string(id++) + " = call @" + data2.ident + "()\n";
+            }
+            else {
+                str += "call @" + data2.ident + "()\n";
+            }
+            break;
+        case 3:
+            funcTable = current_node->findRootTable();
+            funcSym = funcTable->find(data3.ident);
+            bool first = 1;
+            string tmp = "";
+            assert(funcSym.tag == 2);
+            if (funcSym.data.func_has_ret) {
+                tmp += " = call @" + data3.ident + "(";
+                for (auto it = data3.exps->begin(); it != data3.exps->end();it++) {
+                    if (!first)
+                        tmp += ", ";
+                    (*it)->GenKoopa(str);
+                    tmp += "%" + to_string(id - 1);
+                    first = false;
+                }
+                tmp += ")\n";
+                str += "%" + to_string(id++) + tmp;
+            }
+            else {
+                tmp += "call @" + data3.ident + "(";
+                for (auto it = data3.exps->begin(); it != data3.exps->end();it++) {
+                    if (!first)
+                        tmp += ", ";
+                    (*it)->GenKoopa(str);
+                    tmp += "%" + to_string(id - 1);
+                    first = false;
+                }
+                tmp += ")\n";
+                str += tmp;
+            }
             break;
         }
     }

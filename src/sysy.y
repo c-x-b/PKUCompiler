@@ -38,25 +38,38 @@ using namespace std;
 
 // lexer 返回的所有 token 种类的声明
 // 注意 IDENT 和 INT_CONST 会返回 token 的值, 分别对应 str_val 和 int_val
-%token INT RETURN LE GE EQ NE LAND LOR CONST IF ELSE WHILE BREAK CONTINUE
+%token INT RETURN LE GE EQ NE LAND LOR CONST IF ELSE WHILE BREAK CONTINUE VOID
 %token <str_val> IDENT
 %token <int_val> INT_CONST
 
 // 非终结符的类型定义
-%type <ast_val> FuncDef FuncType 
+%type <ast_val> FuncDef FuncFParam 
                 Decl ConstDecl BType ConstDef ConstInitVal VarDecl VarDef InitVal
                 Block BlockItem Stmt MatchedStmt OpenStmt 
                 ExpOrNone Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
-%type <vec_val> ConstDefSet VarDefSet BlockItemSet
+%type <vec_val> FuncDefSet ConstDefSet VarDefSet FuncFParams BlockItemSet FuncRParams
+%type <str_val> FuncType
 
 %%
 
 CompUnit
-  : FuncDef {
+  : FuncDefSet {
     auto comp_unit = make_unique<CompUnitAST>();
-    comp_unit->func_def = unique_ptr<BaseAST>($1);
+    comp_unit->func_defs = unique_ptr<vector<unique_ptr<BaseAST>>>($1);
     ast = move(comp_unit);
+  }
+  ;
+FuncDefSet
+  : FuncDef {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncDefSet FuncDef {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($2));
+    $$ = vec;
   }
   ;
 
@@ -104,7 +117,7 @@ BType
 ConstDef
   : IDENT '=' ConstInitVal {
     auto ast = new ConstDefAST();
-    ast->ident = *unique_ptr<string>($1);
+    ast->ident = *($1);
     ast->const_init_val = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
@@ -140,14 +153,14 @@ VarDef
   : IDENT {
     auto ast = new VarDefAST();
     ast->tag = 0;
-    ast->data0.ident = *unique_ptr<string>($1);
+    ast->data0.ident = *($1);
     $$ = ast;
   }
   | IDENT '=' InitVal {
     //cout << "start" << endl;
     auto ast = new VarDefAST();
     ast->tag = 1;
-    ast->data1.ident = *unique_ptr<string>($1);
+    ast->data1.ident = *($1);
     ast->data1.init_val = unique_ptr<BaseAST>($3);
     //cout << "done1" << endl;
     $$ = ast;
@@ -164,16 +177,49 @@ InitVal
 FuncDef
   : FuncType IDENT '(' ')' Block {
     auto ast = new FuncDefAST();
-    ast->func_type = unique_ptr<BaseAST>($1);
-    ast->ident = *unique_ptr<string>($2);
-    ast->block = unique_ptr<BaseAST>($5);
+    ast->tag = 0;
+    ast->data0.func_type = *($1);
+    ast->data0.ident = *($2);
+    ast->data0.block = unique_ptr<BaseAST>($5);
+    $$ = ast;
+  }
+  | FuncType IDENT '(' FuncFParams ')' Block {
+    auto ast = new FuncDefAST();
+    ast->tag = 1;
+    ast->data1.func_type = *($1);
+    ast->data1.ident = *($2);
+    ast->data1.func_f_params = unique_ptr<vector<unique_ptr<BaseAST>>>($4);
+    ast->data1.block = unique_ptr<BaseAST>($6);
     $$ = ast;
   }
   ;
 FuncType
   : INT {
-    auto ast = new FuncTypeAST();
-    ast->type = string("int");
+    string *str = new string("int");
+    $$ = str;
+  }
+  | VOID {
+    string *str = new string("void");
+    $$ = str;
+  }
+  ;
+FuncFParams
+  : FuncFParam {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncFParams ',' FuncFParam {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
+  ;
+FuncFParam 
+  : BType IDENT {
+    auto ast = new FuncFParamAST();
+    ast->b_type = unique_ptr<BaseAST>($1);
+    ast->ident = *($2);
     $$ = ast;
   }
   ;
@@ -327,7 +373,7 @@ Exp
 LVal
   : IDENT {
     auto ast = new LValAST();
-    ast->ident = *unique_ptr<string>($1);
+    ast->ident = *($1);
     $$ = ast;
   }
   ;
@@ -374,6 +420,31 @@ UnaryExp
     ast->data1.unary_exp = unique_ptr<BaseAST>($2);
     $$ = ast;
   } 
+  | IDENT '(' ')' {
+    auto ast = new UnaryExpAST();
+    ast->tag = 2;
+    ast->data2.ident = *($1);
+    $$ = ast;
+  }
+  | IDENT '(' FuncRParams ')' {
+    auto ast = new UnaryExpAST();
+    ast->tag = 3;
+    ast->data3.ident = *($1);
+    ast->data3.exps = unique_ptr<vector<unique_ptr<BaseAST>>>($3);
+    $$ = ast;
+  }
+  ;
+FuncRParams 
+  : Exp {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | FuncRParams ',' Exp {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
+  }
   ;
 UnaryOp
   : '+' {
