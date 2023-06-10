@@ -141,8 +141,8 @@ private:
         if (func->bbs.len==0)
             return;
         // 执行一些其他的必要操作
-        *riscv += ".text\n";
-        *riscv += ".global " + string(func->name + 1) + "\n";
+        *riscv += "  .text\n";
+        *riscv += "  .globl " + string(func->name + 1) + "\n";
         *riscv += string(func->name+1) + ":\n";
 
         int varSpace = 0, raSpace = 0, maxParamNum = 0;
@@ -233,6 +233,9 @@ private:
         case KOOPA_RVT_CALL:
             VisitCall(value);
             break;
+        case KOOPA_RVT_GLOBAL_ALLOC:
+            VisitGlobalAlloc(value);
+            break;
         default:
         // 其他类型暂时遇不到
         assert(false);
@@ -249,21 +252,36 @@ private:
             }
             else if (ret_value->kind.tag == KOOPA_RVT_BINARY) {
                 int loc = stackTable.access(ret_value);
-                *riscv += "li t3, " + to_string(loc) + "\n";
-                *riscv += "add t3, sp, t3\n";
-                *riscv += "lw a0, 0(t3)\n";
+                if (loc>=2048) {
+                    *riscv += "li t3, " + to_string(loc) + "\n";
+                    *riscv += "add t3, sp, t3\n";
+                    *riscv += "lw a0, 0(t3)\n";
+                }
+                else {
+                    *riscv += "lw a0, " + to_string(loc) + "(sp)\n";
+                }
             }
             else if (ret_value->kind.tag == KOOPA_RVT_LOAD) {
                 int loc = stackTable.access(ret_value);
-                *riscv += "li t3, " + to_string(loc) + "\n";
-                *riscv += "add t3, sp, t3\n";
-                *riscv += "lw a0, 0(t3)\n";
+                if (loc>=2048) {
+                    *riscv += "li t3, " + to_string(loc) + "\n";
+                    *riscv += "add t3, sp, t3\n";
+                    *riscv += "lw a0, 0(t3)\n";
+                }
+                else {
+                    *riscv += "lw a0, " + to_string(loc) + "(sp)\n";
+                }
             }
             else if (ret_value->kind.tag == KOOPA_RVT_CALL) {
                 int loc = stackTable.access(ret_value);
-                *riscv += "li t3, " + to_string(loc) + "\n";
-                *riscv += "add t3, sp, t3\n";
-                *riscv += "lw a0, 0(t3)\n";
+                if (loc>=2048) {
+                    *riscv += "li t3, " + to_string(loc) + "\n";
+                    *riscv += "add t3, sp, t3\n";
+                    *riscv += "lw a0, 0(t3)\n";
+                }
+                else {
+                    *riscv += "lw a0, " + to_string(loc) + "(sp)\n";
+                }
             }
         }
         if (raLoc > 0) {
@@ -337,9 +355,14 @@ private:
             }
             *riscv += "li " + resultReg + ", " + to_string(imm) + "\n";
             int loc = stackTable.access(value);
-            *riscv += "li t3, " + to_string(loc) + "\n";
-            *riscv += "add t3, sp, t3\n";
-            *riscv += "sw " + resultReg + ", 0(t3)\n\n";
+            if (loc >= 2048) {
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "sw " + resultReg + ", 0(t3)\n\n";
+            }
+            else {
+                *riscv += "sw " + resultReg + ", " + to_string(loc) + "(sp)\n\n";
+            }
             return;
         }
 
@@ -350,9 +373,14 @@ private:
         }
         else {
             int loc = stackTable.access(binary.lhs);
-            *riscv += "li t3, " + to_string(loc) + "\n";
-            *riscv += "add t3, sp, t3\n";
-            *riscv += "lw " + r1Reg + ", 0(t3)\n";
+            if (loc >=2048) {
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw " + r1Reg + ", 0(t3)\n";
+            }
+            else {
+                *riscv += "lw " + r1Reg + ", " + to_string(loc) + "(sp)\n";
+            }
             //regs.GetRegStr(binary.lhs, r1Reg, 999);
         }
         if (rhs_kind.tag == KOOPA_RVT_INTEGER) {
@@ -362,9 +390,14 @@ private:
         }
         else {
             int loc = stackTable.access(binary.rhs);
-            *riscv += "li t3, " + to_string(loc) + "\n";
-            *riscv += "add t3, sp, t3\n";
-            *riscv += "lw " + r2Reg + ", 0(t3)\n";
+            if (loc >=2048) {
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw " + r2Reg + ", 0(t3)\n";
+            }
+            else {
+                *riscv += "lw " + r2Reg + ", " + to_string(loc) + "(sp)\n";
+            }
             //regs.GetRegStr(binary.rhs, r2Reg, 999);
         }
         
@@ -415,68 +448,140 @@ private:
         }
 
         int loc = stackTable.access(value);
-        *riscv += "li t3, " + to_string(loc) + "\n";
-        *riscv += "add t3, sp, t3\n";
-        *riscv += "sw " + resultReg + ", 0(t3)\n\n";
+        if (loc >= 2048) {
+            *riscv += "li t3, " + to_string(loc) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "sw " + resultReg + ", 0(t3)\n\n";
+        }
+        else {
+            *riscv += "sw " + resultReg + ", " + to_string(loc) + "(sp)\n\n";
+        }
     }
 
     void VisitStore(const koopa_raw_store_t &store) {
+        // may have bugs.
         if (store.value->kind.tag == KOOPA_RVT_INTEGER) {
             int val = store.value->kind.data.integer.value;
             *riscv += "li t0, " + to_string(val) + "\n";
             int loc = stackTable.access(store.dest);
-            *riscv += "li t3, " + to_string(loc) + "\n";
-            *riscv += "add t3, sp, t3\n";
-            *riscv += "sw t0, 0(t3)\n";
+            if (loc >= 2048) {
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "sw t0, 0(t3)\n";
+            }
+            else {
+                *riscv += "sw t0, " + to_string(loc) + "(sp)\n";
+            }
         }
         else if (store.value->kind.tag == KOOPA_RVT_FUNC_ARG_REF) {
             int pindex = store.value->kind.data.func_arg_ref.index; // start from 0
             int loc = stackTable.access(store.dest);
             if (pindex < 8) {
                 string reg = "a" + to_string(pindex);
-                *riscv += "li t3, " + to_string(loc) + "\n";
-                *riscv += "add t3, sp, t3\n";
-                *riscv += "sw " + reg + ", 0(t3)\n\n";
+                if (loc >= 2048) {
+                    *riscv += "li t3, " + to_string(loc) + "\n";
+                    *riscv += "add t3, sp, t3\n";
+                    *riscv += "sw " + reg + ", 0(t3)\n\n";
+                }
+                else {
+                    *riscv += "sw " + reg + ", " + to_string(loc) + "(sp)\n\n";
+                }
             }
             else {
-                *riscv += "li t3, " + to_string(stackSpace + 4 * (pindex - 8)) + "\n";
-                *riscv += "add t3, sp, t3\n";
-                *riscv += "lw t0, 0(t3)\n\n";
+                int loc2 = stackSpace + 4 * (pindex - 8);
+                if (loc2 >= 2048) {
+                    *riscv += "li t3, " + to_string(loc2) + "\n";
+                    *riscv += "add t3, sp, t3\n";
+                    *riscv += "lw t0, 0(t3)\n\n";
+                }
+                else {
+                    *riscv += "lw t0, " + to_string(loc2) + "(sp)\n\n";
+                }
+                if (loc >= 2048) {
+                    *riscv += "li t3, " + to_string(loc) + "\n";
+                    *riscv += "add t3, sp, t3\n";
+                    *riscv += "sw t0, 0(t3)\n\n";
+                }
+                else {
+                    *riscv += "sw t0, " + to_string(loc) + "(sp)\n\n";
+                }
+            } 
+        }
+        else if (store.dest->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
+            int loc = stackTable.access(store.value);
+            if (loc >= 2048) {
                 *riscv += "li t3, " + to_string(loc) + "\n";
                 *riscv += "add t3, sp, t3\n";
-                *riscv += "sw t0, 0(t3)\n\n";
-            } 
+                *riscv += "lw t0, 0(t3)\n";
+            }
+            else {
+                *riscv += "lw t0, " + to_string(loc) + "(sp)\n";
+            }
+            *riscv += "la t3, " + string(store.dest->name + 1) + "\n";
+            *riscv += "sw t0, 0(t3)\n";
         }
         else {
             int loc1 = stackTable.access(store.value);
-            *riscv += "li t3, " + to_string(loc1) + "\n";
-            *riscv += "add t3, sp, t3\n";
-            *riscv += "lw t0, 0(t3)\n";
+            if (loc1 >= 2048) {
+                *riscv += "li t3, " + to_string(loc1) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw t0, 0(t3)\n";
+            }
+            else {
+                *riscv += "lw t0, " + to_string(loc1) + "(sp)\n";
+            }
             int loc2 = stackTable.access(store.dest);
-            *riscv += "li t3, " + to_string(loc2) + "\n";
-            *riscv += "add t3, sp, t3\n";
-            *riscv += "sw t0, 0(t3)\n\n";
+            if (loc2 >= 2048) {
+                *riscv += "li t3, " + to_string(loc2) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "sw t0, 0(t3)\n\n";
+            }
+            else {
+                *riscv += "sw t0, " + to_string(loc2) + "(sp)\n\n";
+            }
         }
         
     }
 
     void VisitLoad(const koopa_raw_value_t &value) {
         koopa_raw_load_t load = value->kind.data.load;
-        int loc1 = stackTable.access(load.src);
-        *riscv += "li t3, " + to_string(loc1) + "\n";
-        *riscv += "add t3, sp, t3\n";
-        *riscv += "lw t0, 0(t3)\n";
+        if (load.src->kind.tag == KOOPA_RVT_GLOBAL_ALLOC) {
+            string name = load.src->name + 1;
+            *riscv += "la t0, " + name + "\n";
+            *riscv += "lw t0, 0(t0)\n";
+        }
+        else {
+            int loc1 = stackTable.access(load.src);
+            if (loc1 >= 2048) {
+                *riscv += "li t3, " + to_string(loc1) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw t0, 0(t3)\n";
+            }
+            else {
+                *riscv += "lw t0, " + to_string(loc1) + "(sp)\n";
+            }
+        }
         int loc2 = stackTable.access(value);
-        *riscv += "li t3, " + to_string(loc2) + "\n";
-        *riscv += "add t3, sp, t3\n";
-        *riscv += "sw t0, 0(t3)\n\n";
+        if (loc2 >= 2048) {
+            *riscv += "li t3, " + to_string(loc2) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "sw t0, 0(t3)\n\n";
+        }
+        else {
+            *riscv += "sw t0, " + to_string(loc2) + "(sp)\n\n";
+        }
     }
 
     void VisitBranch(const koopa_raw_branch_t &branch) {
         int loc = stackTable.access(branch.cond);
-        *riscv += "li t3, " + to_string(loc) + "\n";
-        *riscv += "add t3, sp, t3\n";
-        *riscv += "lw t0, 0(t3)\n";
+        if (loc >= 2048) {
+            *riscv += "li t3, " + to_string(loc) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "lw t0, 0(t3)\n";
+        }
+        else {
+            *riscv += "lw t0, " + to_string(loc) + "(sp)\n";
+        }
         *riscv += "bnez t0, " + string(branch.true_bb->name + 1) + "\n";
         *riscv += "j " + string(branch.false_bb->name + 1) + "\n";
         *riscv += "\n";
@@ -502,9 +607,14 @@ private:
                 }
                 else {
                     int loc = stackTable.access(arg);
-                    *riscv += "li t3, " + to_string(loc) + "\n";
-                    *riscv += "add t3, sp, t3\n";
-                    *riscv += "lw " + reg + ", 0(t3)\n";
+                    if (loc >= 2048) {
+                        *riscv += "li t3, " + to_string(loc) + "\n";
+                        *riscv += "add t3, sp, t3\n";
+                        *riscv += "lw " + reg + ", 0(t3)\n";
+                    }
+                    else {
+                        *riscv += "lw " + reg + ", " + to_string(loc) + "(sp)\n";
+                    }
                 }
             }
             else {
@@ -515,9 +625,14 @@ private:
                 }
                 else {
                     int loc = stackTable.access(arg);
-                    *riscv += "li t3, " + to_string(loc) + "\n";
-                    *riscv += "add t3, sp, t3\n";
-                    *riscv += "lw t0, 0(t3)\n";
+                    if (loc >= 2048) {
+                        *riscv += "li t3, " + to_string(loc) + "\n";
+                        *riscv += "add t3, sp, t3\n";
+                        *riscv += "lw t0, 0(t3)\n";
+                    }
+                    else {
+                        *riscv += "lw t0, " + to_string(loc) + "(sp)\n";
+                    }
                     *riscv += "sw t0, " + argLoc +"(sp)\n";
                 }
             }
@@ -526,9 +641,28 @@ private:
         *riscv += "call " + string(call.callee->name + 1) + "\n";
         if (hasType) {
             int loc = stackTable.access(value);
-            *riscv += "li t3, " + to_string(loc) + "\n";
-            *riscv += "add t3, sp, t3\n";
-            *riscv += "sw a0, 0(t3)\n\n";
+            if (loc >= 2048) {
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "sw a0, 0(t3)\n\n";
+            }
+            else {
+                *riscv += "sw a0, " + to_string(loc) + "(sp)\n\n";
+            }
+        }
+    }
+
+    void VisitGlobalAlloc(const koopa_raw_value_t &value) {
+        koopa_raw_global_alloc_t global = value->kind.data.global_alloc;
+        *riscv += "  .data\n";
+        *riscv += "  .globl " + string(value->name + 1) + "\n";
+        *riscv += string(value->name + 1) + ":\n";
+
+        if (global.init->kind.tag == KOOPA_RVT_ZERO_INIT) {
+            *riscv += "  .zero 4\n\n";
+        }
+        else if (global.init->kind.tag == KOOPA_RVT_INTEGER) {
+            *riscv += "  .word " + to_string(global.init->kind.data.integer.value) + "\n\n";
         }
     }
 };
