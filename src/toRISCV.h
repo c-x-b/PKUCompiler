@@ -81,6 +81,11 @@ public:
             return (usedSpace - 4);
         }
     }
+
+    void clear() {
+        table.clear();
+        usedSpace = 0;
+    }
 };
 
 class KoopaVisitor {
@@ -92,7 +97,7 @@ public:
     // 访问 raw program
     void Visit(const koopa_raw_program_t &program) {
         // 执行一些其他的必要操作
-        *riscv += ".text\n";
+
         // 访问所有全局变量
         Visit(program.values);
         // 访问所有函数
@@ -104,6 +109,8 @@ private:
     RegAllocator regs;
     StackTable stackTable;
     int stackSpace = 0;
+    int paramStackSpace = 0;
+    int raLoc = -1;
 
     // 访问 raw slice
     void Visit(const koopa_raw_slice_t &slice) {
@@ -131,33 +138,60 @@ private:
 
     // 访问函数
     void Visit(const koopa_raw_function_t &func) {
+        if (func->bbs.len==0)
+            return;
         // 执行一些其他的必要操作
+        *riscv += ".text\n";
         *riscv += ".global " + string(func->name + 1) + "\n";
         *riscv += string(func->name+1) + ":\n";
 
-        int space = 0;
+        int varSpace = 0, raSpace = 0, maxParamNum = 0;
         for (size_t i = 0; i < func->bbs.len;i++) {
             auto bb = reinterpret_cast<koopa_raw_basic_block_t>(func->bbs.buffer[i]);
             for (size_t i = 0; i < bb->insts.len; ++i) {
                 koopa_raw_value_t inst = reinterpret_cast<koopa_raw_value_t>(bb->insts.buffer[i]);
                 if (inst->ty->tag!=KOOPA_RTT_UNIT) {
-                    space += 4;
+                    varSpace += 4;
+                }
+                if (inst->kind.tag == KOOPA_RVT_CALL) {
+                    raSpace = 4;
+                    maxParamNum = (inst->kind.data.call.args.len > maxParamNum) ? inst->kind.data.call.args.len : maxParamNum;
                 }
             }
         }
+        int paramSpace = (maxParamNum - 8) * 4;
+        paramStackSpace = (paramSpace < 0) ? 0 : paramSpace;
+        cout << "paramStackSpace " << paramStackSpace << endl;
+        stackTable.usedSpace = paramStackSpace;
+        int space = varSpace + raSpace + paramStackSpace;
         space = ((space - 4) / 16 + 1) * 16;
         *riscv += "li t0, -" + to_string(space) + "\n";
         *riscv += "add sp, sp, t0\n";
         stackSpace = space;
+        if (raSpace==4) {
+            raLoc = space - 4;
+            *riscv += "li t3, " + to_string(raLoc) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "sw ra, 0(t3)\n";
+        }
+
+        cout << "alloc done\n";
 
         // 访问所有基本块
         Visit(func->bbs);
+
+        raLoc = -1;
+        stackTable.clear();
     }
 
     // 访问基本块
     void Visit(const koopa_raw_basic_block_t &bb) {
         // 执行一些其他的必要操作
-        *riscv += string(bb->name + 1) + ":\n";
+        string name = string(bb->name + 1);
+        if (name != "entry")
+            *riscv += name + ":\n";
+        else
+            *riscv += "\n";
         // 访问所有指令
         Visit(bb->insts);
         
@@ -188,13 +222,16 @@ private:
             break;
         case KOOPA_RVT_ALLOC:
             stackTable.access(value);
-            cout << "alloc\n";
+            //cout << "alloc\n";
             break;
         case KOOPA_RVT_BRANCH:
             VisitBranch(kind.data.branch);
             break;
         case KOOPA_RVT_JUMP:
             VisitJump(kind.data.jump);
+            break;
+        case KOOPA_RVT_CALL:
+            VisitCall(value);
             break;
         default:
         // 其他类型暂时遇不到
@@ -205,31 +242,38 @@ private:
     //访问 return 指令
     void VisitRet(const koopa_raw_return_t &ret) {
         koopa_raw_value_t ret_value = ret.value;
-        if (ret_value->kind.tag == KOOPA_RVT_INTEGER) {
-            int32_t int_val = ret_value->kind.data.integer.value;
-            *riscv += "li a0, " + to_string(int_val) + "\n";
-            *riscv += "li t0, " + to_string(stackSpace) + "\n";
-            *riscv += "add sp, sp, t0\n";
-            *riscv += "ret\n";
+        if (ret_value != nullptr) {
+            if (ret_value->kind.tag == KOOPA_RVT_INTEGER) {
+                int32_t int_val = ret_value->kind.data.integer.value;
+                *riscv += "li a0, " + to_string(int_val) + "\n";
+            }
+            else if (ret_value->kind.tag == KOOPA_RVT_BINARY) {
+                int loc = stackTable.access(ret_value);
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw a0, 0(t3)\n";
+            }
+            else if (ret_value->kind.tag == KOOPA_RVT_LOAD) {
+                int loc = stackTable.access(ret_value);
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw a0, 0(t3)\n";
+            }
+            else if (ret_value->kind.tag == KOOPA_RVT_CALL) {
+                int loc = stackTable.access(ret_value);
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw a0, 0(t3)\n";
+            }
         }
-        else if (ret_value->kind.tag == KOOPA_RVT_BINARY) {
-            int loc = stackTable.access(ret_value);
-            *riscv += "li t3, " + to_string(loc) + "\n";
+        if (raLoc > 0) {
+            *riscv += "li t3, " + to_string(raLoc) + "\n";
             *riscv += "add t3, sp, t3\n";
-            *riscv += "lw a0, 0(t3)\n";
-            *riscv += "li t0, " + to_string(stackSpace) + "\n";
-            *riscv += "add sp, sp, t0\n";
-            *riscv += "ret\n";
+            *riscv += "lw ra, 0(t3)\n";
         }
-        else if (ret_value->kind.tag == KOOPA_RVT_LOAD) {
-            int loc = stackTable.access(ret_value);
-            *riscv += "li t3, " + to_string(loc) + "\n";
-            *riscv += "add t3, sp, t3\n";
-            *riscv += "lw a0, 0(t3)\n";
-            *riscv += "li t0, " + to_string(stackSpace) + "\n";
-            *riscv += "add sp, sp, t0\n";
-            *riscv += "ret\n";
-        }
+        *riscv += "li t0, " + to_string(stackSpace) + "\n";
+        *riscv += "add sp, sp, t0\n";
+        *riscv += "ret\n\n";
     }
 
     //访问 integer 指令
@@ -385,7 +429,7 @@ private:
             *riscv += "add t3, sp, t3\n";
             *riscv += "sw t0, 0(t3)\n";
         }
-        else {
+        else if (store.value->kind.tag == KOOPA_RVT_BINARY){
             int loc1 = stackTable.access(store.value);
             *riscv += "li t3, " + to_string(loc1) + "\n";
             *riscv += "add t3, sp, t3\n";
@@ -394,6 +438,34 @@ private:
             *riscv += "li t3, " + to_string(loc2) + "\n";
             *riscv += "add t3, sp, t3\n";
             *riscv += "sw t0, 0(t3)\n\n";
+        }
+        else if (store.value->kind.tag == KOOPA_RVT_CALL) {
+            int loc1 = stackTable.access(store.value);
+            *riscv += "li t3, " + to_string(loc1) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "lw t0, 0(t3)\n";
+            int loc2 = stackTable.access(store.dest);
+            *riscv += "li t3, " + to_string(loc2) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "sw t0, 0(t3)\n\n";
+        }
+        else if (store.value->kind.tag == KOOPA_RVT_FUNC_ARG_REF) {
+            int pindex = store.value->kind.data.func_arg_ref.index; // start from 0
+            int loc = stackTable.access(store.dest);
+            if (pindex < 8) {
+                string reg = "a" + to_string(pindex);
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "sw " + reg + ", 0(t3)\n\n";
+            }
+            else {
+                *riscv += "li t3, " + to_string(stackSpace + 4 * (pindex - 8)) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw t0, 0(t3)\n\n";
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "sw t0, 0(t3)\n\n";
+            } 
         }
     }
 
@@ -422,6 +494,51 @@ private:
     void VisitJump(const koopa_raw_jump_t &jump) {
         *riscv += "j " + string(jump.target->name + 1) + "\n";
         *riscv += "\n";
+    }
+
+    void VisitCall(const koopa_raw_value_t &value) {
+        koopa_raw_call_t call = value->kind.data.call;
+        bool hasType = (value->ty->tag != KOOPA_RTT_UNIT);
+        cout << "call " << call.callee->name << ", arg num: " << call.args.len << endl;
+
+        for (size_t i = 0; i < call.args.len;i++) {
+            koopa_raw_value_t arg = reinterpret_cast<koopa_raw_value_t>(call.args.buffer[i]);
+            
+            if (i < 8) {
+                string reg = "a" + to_string(i);
+                if (arg->kind.tag == KOOPA_RVT_INTEGER) {
+                    *riscv += "li " + reg + ", " + to_string(arg->kind.data.integer.value) + "\n";
+                }
+                else {
+                    int loc = stackTable.access(arg);
+                    *riscv += "li t3, " + to_string(loc) + "\n";
+                    *riscv += "add t3, sp, t3\n";
+                    *riscv += "lw " + reg + ", 0(t3)\n";
+                }
+            }
+            else {
+                string argLoc = to_string((i - 8) * 4);
+                if (arg->kind.tag == KOOPA_RVT_INTEGER) {
+                    *riscv += "li t0, " + to_string(arg->kind.data.integer.value) + "\n";
+                    *riscv += "sw t0, " + argLoc +"(sp)\n";
+                }
+                else {
+                    int loc = stackTable.access(arg);
+                    *riscv += "li t3, " + to_string(loc) + "\n";
+                    *riscv += "add t3, sp, t3\n";
+                    *riscv += "lw t0, 0(t3)\n";
+                    *riscv += "sw t0, " + argLoc +"(sp)\n";
+                }
+            }
+        }
+
+        *riscv += "call " + string(call.callee->name + 1) + "\n";
+        if (hasType) {
+            int loc = stackTable.access(value);
+            *riscv += "li t3, " + to_string(loc) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "sw a0, 0(t3)\n\n";
+        }
     }
 };
 
