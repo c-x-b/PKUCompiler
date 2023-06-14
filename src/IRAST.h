@@ -134,7 +134,7 @@ public:
     virtual void GenKoopa(string & str) const = 0;
 
     virtual CalcResult Calc() {
-        return CalcResult(1);
+        return CalcResult(true);
     }
 };
 
@@ -417,13 +417,10 @@ public:
         bool global = (current_node->parent == nullptr);
         if (tag == 0) {
             CalcResult result = data0.const_init_val->Calc();
+            assert(!result.err && !result.array);
             cout << data0.ident << " " << result.err << " " << result.result << endl;
-            if (!result.err) {
-                Symbol sym(0, result.result);
-                current_node->table.insert(data0.ident, sym);
-            }
-            else 
-                cout << "ConstInitVal Err!\n";
+            Symbol sym(0, result.result);
+            current_node->table.insert(data0.ident, sym);
         }
         else if (tag == 1) {
             Symbol sym(3, 0);
@@ -442,6 +439,7 @@ public:
                     str += "store " + to_string(*it) + ", %" + to_string(id++) + "\n";
                 }
                 str += "\n";
+                delete ptr;
             }
             else {
                 str += "global @" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc [i32, " + to_string(dimension) + "], {";
@@ -452,6 +450,7 @@ public:
                     str += ", " + to_string(*it);
                 }
                 str += "}\n\n";
+                delete ptr;
             }
         }
     }
@@ -460,6 +459,8 @@ public:
         switch (tag) {
         case 0:
             return data0.const_init_val->Calc();
+        case 1:
+            return CalcResult(true);
         }
     }
 };
@@ -491,12 +492,12 @@ public:
             return data0.const_exp->Calc();
         }
         else if (tag == 1) {
-            CalcResult result(0, 1, 0);
+            CalcResult result(false, true, 0);
             result.ptr->resize(num, 0);
             return result;
         }
         else if (tag == 2) {
-            CalcResult result(0, 1, 0);
+            CalcResult result(false, true, 0);
             result.ptr->resize(num, 0);
             for (int i = 0; i < data2.const_exps->size();i++) {
                 (*result.ptr)[i] = (*data2.const_exps)[i]->Calc().result;
@@ -543,12 +544,12 @@ public:
             return data0.exp->Calc();
         }
         else if (tag == 1) {
-            CalcResult result(0, 1, 0);
+            CalcResult result(false, true, 0);
             result.ptr->resize(num, 0);
             return result;
         }
         else if (tag == 2) {
-            CalcResult result(0, 1, 0);
+            CalcResult result(false, true, 0);
             result.ptr->resize(num, 0);
             for (int i = 0; i < data2.exps->size();i++) {
                 (*result.ptr)[i] = (*data2.exps)[i]->Calc().result;
@@ -619,6 +620,7 @@ public:
             else {
                 str += "global @" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc i32, ";
                 CalcResult result = data1.init_val->Calc();
+                assert(!result.err && !result.array);
                 cout << "global " << data1.ident << " " << result.err << " " << result.result << endl;
                 str += to_string(result.result) + "\n\n";
             }
@@ -680,6 +682,7 @@ public:
                     str += ", " + to_string(*it);
                 }
                 str += "}\n\n";
+                delete ptr;
             }
         }
     }
@@ -728,18 +731,18 @@ public:
     CalcResult Calc() override {
         if (tag == 0) {
             if (current_node == nullptr)
-                return CalcResult(1);
+                return CalcResult(true);
             SymbolTable *table = current_node->findTable(data0.ident);
             if (!table || !table->check(data0.ident))
-                return CalcResult(1);
+                return CalcResult(true);
             else {
                 Symbol sym = table->find(data0.ident);
                 assert(sym.tag == 0);
-                return CalcResult(0, sym.data.const_val);
+                return CalcResult(false, sym.data.const_val);
             }
         }
         else if (tag == 1) {
-            return CalcResult(1);
+            return CalcResult(true);
         }
     }
 };
@@ -1165,11 +1168,11 @@ public:
         case 0:
             return data0.exp->Calc();
         case 1:
-            return CalcResult{0, data1.number};
+            return CalcResult(false, data1.number);
         case 2:
             return data2.l_val->Calc();
         default:
-            return CalcResult{1, 0};
+            return CalcResult(true);
         }
     }
 };
@@ -1266,6 +1269,7 @@ public:
             return data0.primary_exp->Calc();
         case 1:
             CalcResult t = data1.unary_exp->Calc();
+            assert(!t.err && !t.array);
             int op = data1.unary_op->Calc().result;
             int result = 0;
             if (op==0)
@@ -1274,9 +1278,9 @@ public:
                 result = -t.result;
             else if (op==2)
                 result = !t.result;
-            return CalcResult{t.err, result};
+            return CalcResult(t.err, result);
         }
-        return CalcResult{1, 0};
+        return CalcResult(true);
     }
 };
 
@@ -1322,7 +1326,7 @@ public:
     }
 
     CalcResult Calc() override {
-        return CalcResult(1);
+        return CalcResult(true);
     }
 };
 
@@ -1380,6 +1384,8 @@ public:
             return data0.unary_exp->Calc();
         case 1:
             CalcResult t1 = data1.mul_exp->Calc(), t2 = data1.unary_exp->Calc();
+            assert(!t1.err && !t1.array);
+            assert(!t2.err && !t2.array);
             int result = 0;
             if (data1.op==DATA1::OP_MUL)
                 result = t1.result * t2.result;
@@ -1387,9 +1393,9 @@ public:
                 result = t1.result / t2.result;
             else if (data1.op==DATA1::OP_MOD)
                 result = t1.result % t2.result;
-            return CalcResult{t1.err || t2.err, result};
+            return CalcResult(t1.err || t2.err, result);
         }
-        return CalcResult{1, 0};
+        return CalcResult(true);
     }
 };
 
@@ -1443,14 +1449,16 @@ public:
             return data0.mul_exp->Calc();
         case 1:
             CalcResult t1 = data1.add_exp->Calc(), t2 = data1.mul_exp->Calc();
+            assert(!t1.err && !t1.array);
+            assert(!t2.err && !t2.array);
             int result = -1;
             if (data1.op==DATA1::OP_ADD)
                 result = t1.result + t2.result;
             else if (data1.op==DATA1::OP_SUB)
                 result = t1.result - t2.result;
-            return CalcResult{t1.err || t2.err, result};
+            return CalcResult(t1.err || t2.err, result);
         }
-        return CalcResult{1, 0};
+        return CalcResult(true);
     }
 };
 
@@ -1512,6 +1520,8 @@ public:
             return data0.add_exp->Calc();
         case 1:
             CalcResult t1 = data1.rel_exp->Calc(), t2 = data1.add_exp->Calc();
+            assert(!t1.err && !t1.array);
+            assert(!t2.err && !t2.array);
             int result = 0;
             if (data1.comp==DATA1::COMP_LT)
                 result = (t1.result < t2.result);
@@ -1521,9 +1531,9 @@ public:
                 result = (t1.result <= t2.result);
             else if (data1.comp==DATA1::COMP_GE)
                 result = (t1.result >= t2.result);
-            return CalcResult{t1.err || t2.err, result};
+            return CalcResult(t1.err || t2.err, result);
         }
-        return CalcResult{1, 0};
+        return CalcResult(true);
     }
 };
 
@@ -1577,14 +1587,16 @@ public:
             return data0.rel_exp->Calc();
         case 1:
             CalcResult t1 = data1.eq_exp->Calc(), t2 = data1.rel_exp->Calc();
+            assert(!t1.err && !t1.array);
+            assert(!t2.err && !t2.array);
             int result = 0;
             if (data1.comp==DATA1::COMP_EQ)
                 result = (t1.result == t2.result);
             else if (data1.comp==DATA1::COMP_NE)
                 result = (t1.result != t2.result);
-            return CalcResult{t1.err || t2.err, result};
+            return CalcResult(t1.err || t2.err, result);
         }
-        return CalcResult{1, 0};
+        return CalcResult(true);
     }
 };
 
@@ -1637,9 +1649,11 @@ public:
             return data0.eq_exp->Calc();
         case 1:
             CalcResult t1 = data1.l_and_exp->Calc(), t2 = data1.eq_exp->Calc();
-            return CalcResult{t1.err || t2.err, t1.result && t2.result};
+            assert(!t1.err && !t1.array);
+            assert(!t2.err && !t2.array);
+            return CalcResult(t1.err || t2.err, t1.result && t2.result);
         }
-        return CalcResult{1, 0};
+        return CalcResult(true);
     }
 };
 
@@ -1692,9 +1706,11 @@ public:
             return data0.l_and_exp->Calc();
         case 1:
             CalcResult t1 = data1.l_or_exp->Calc(), t2 = data1.l_and_exp->Calc();
-            return CalcResult{t1.err || t2.err, t1.result || t2.result};
+            assert(!t1.err && !t1.array);
+            assert(!t2.err && !t2.array);
+            return CalcResult(t1.err || t2.err, t1.result || t2.result);
         }
-        return CalcResult{1, 0};
+        return CalcResult(true);
     }
 };
 
