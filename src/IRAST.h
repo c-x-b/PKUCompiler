@@ -9,7 +9,7 @@
 using namespace std;
 
 static int id = 0;
-static int tableId = 0;
+static int tableId = 1;
 static int blockId = 0;
 static bool hasRet = 0;
 static bool withinIntFunc = 0;
