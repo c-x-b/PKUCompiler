@@ -48,7 +48,7 @@ using namespace std;
                 Block BlockItem Stmt MatchedStmt OpenStmt 
                 ExpOrNone Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
-%type <vec_val> CompUnitSet ConstDefSet VarDefSet FuncFParams BlockItemSet FuncRParams
+%type <vec_val> CompUnitSet ConstDefSet ConstExpSet VarDefSet ExpSet FuncFParams BlockItemSet FuncRParams
 %type <str_val> Type
 
 %%
@@ -120,16 +120,49 @@ ConstDefSet
 ConstDef
   : IDENT '=' ConstInitVal {
     auto ast = new ConstDefAST();
-    ast->ident = *($1);
-    ast->const_init_val = unique_ptr<BaseAST>($3);
+    ast->tag = 0;
+    ast->data0.ident = *($1);
+    ast->data0.const_init_val = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | IDENT '[' ConstExp ']' '=' ConstInitVal {
+    auto ast = new ConstDefAST();
+    ast->tag = 1;
+    ast->data1.ident = *($1);
+    ast->data1.const_exp = unique_ptr<BaseAST>($3);
+    ast->data1.const_init_val = unique_ptr<BaseAST>($6);
     $$ = ast;
   }
   ;
 ConstInitVal 
   : ConstExp{
     auto ast = new ConstInitValAST();
-    ast->const_exp = unique_ptr<BaseAST>($1);
+    ast->tag = 0;
+    ast->data0.const_exp = unique_ptr<BaseAST>($1);
     $$ = ast;
+  }
+  | '{' '}' {
+    auto ast = new ConstInitValAST();
+    ast->tag = 1;
+    $$ = ast;
+  }
+  | '{' ConstExpSet '}' {
+    auto ast = new ConstInitValAST();
+    ast->tag = 2;
+    ast->data2.const_exps = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    $$ = ast;
+  }
+  ;
+ConstExpSet 
+  : ConstExp {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | ConstExpSet ',' ConstExp {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
   }
   ;
 VarDecl
@@ -168,12 +201,51 @@ VarDef
     //cout << "done1" << endl;
     $$ = ast;
   }
+  | IDENT '[' ConstExp ']' {
+    auto ast = new VarDefAST();
+    ast->tag = 2;
+    ast->data2.ident = *($1);
+    ast->data2.const_exp = unique_ptr<BaseAST>($3);
+    $$ = ast;
+  }
+  | IDENT '[' ConstExp ']' '=' InitVal {
+    auto ast = new VarDefAST();
+    ast->tag = 3;
+    ast->data3.ident = *($1);
+    ast->data3.const_exp = unique_ptr<BaseAST>($3);
+    ast->data3.init_val = unique_ptr<InitValAST>(dynamic_cast<InitValAST*>($6));
+    $$ = ast;
+  }
   ;
 InitVal
   : Exp {
     auto ast = new InitValAST();
-    ast->exp = unique_ptr<BaseAST>($1);
+    ast->tag = 0;
+    ast->data0.exp = unique_ptr<BaseAST>($1);
     $$ = ast;
+  }
+  | '{' '}' {
+    auto ast = new InitValAST();
+    ast->tag = 1;
+    $$ = ast;
+  }
+  | '{' ExpSet '}' {
+    auto ast = new InitValAST();
+    ast->tag = 2;
+    ast->data2.exps = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    $$ = ast;
+  }
+  ;
+ExpSet
+  : Exp {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($1));
+    $$ = vec;
+  }
+  | ExpSet ',' Exp {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
   }
   ;
 
@@ -285,7 +357,7 @@ MatchedStmt
   | LVal '=' Exp ';' {
     auto ast = new MatchedStmtAST(); 
     ast->tag = 1;
-    ast->data1.l_val = dynamic_cast<LValAST*>($1)->ident;
+    ast->data1.l_val = unique_ptr<LValAST>(dynamic_cast<LValAST*>($1));
     ast->data1.exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
@@ -374,7 +446,15 @@ Exp
 LVal
   : IDENT {
     auto ast = new LValAST();
-    ast->ident = *($1);
+    ast->tag = 0;
+    ast->data0.ident = *($1);
+    $$ = ast;
+  }
+  | IDENT '[' Exp ']' {
+    auto ast = new LValAST();
+    ast->tag = 1;
+    ast->data1.ident = *($1);
+    ast->data1.exp = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
   ;
