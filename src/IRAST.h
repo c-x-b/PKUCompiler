@@ -1325,7 +1325,7 @@ public:
     }
 
     CalcResult Calc() override {
-        return CalcResult(true);
+        return CalcResult(true, op);
     }
 };
 
