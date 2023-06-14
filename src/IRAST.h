@@ -9,7 +9,7 @@
 using namespace std;
 
 static int id = 0;
-static int tableId = 1;
+static int tableId = 0;
 static int blockId = 0;
 static bool hasRet = 0;
 static bool withinIntFunc = 0;
@@ -459,9 +459,8 @@ public:
         switch (tag) {
         case 0:
             return data0.const_init_val->Calc();
-        case 1:
-            return CalcResult(true);
         }
+        return CalcResult(true);
     }
 };
 
@@ -504,6 +503,7 @@ public:
             }
             return result;
         }
+        return CalcResult(true);
     }
 };
 
@@ -556,6 +556,7 @@ public:
             }
             return result;
         }
+        return CalcResult(true);
     }
 };
 
@@ -741,9 +742,7 @@ public:
                 return CalcResult(false, sym.data.const_val);
             }
         }
-        else if (tag == 1) {
-            return CalcResult(true);
-        }
+        return CalcResult(true);
     }
 };
 
