@@ -48,11 +48,12 @@ struct CalcResult {
 
 struct Symbol {
     int tag; // 0 const, 1 var, 2 func, 3 array
+             // 4 ptr or ptr of array, like *i32, *[i32, 2]
     union {
         int const_val;
         int var_id; // id, prevent duplicate names
         int func_has_ret; // 1 if func has ret
-        vector<int>* array_dim_ptr; // ptr to vector of dimension
+        vector<int>* array_dim_ptr; // ptr to vector of dimension, available if tag=3/4
     } data;
 
     Symbol(int _tag, int val) {
@@ -73,9 +74,17 @@ struct Symbol {
         }
     }
     Symbol(int _tag, vector<int>* ptr) {
-        assert(_tag == 3);
-        tag = 3;
-        data.array_dim_ptr = ptr;
+        if (_tag == 3) {
+            tag = 3;
+            data.array_dim_ptr = ptr;
+        }
+        else if (_tag == 4) {
+            tag = 4;
+            data.array_dim_ptr = ptr;
+        }
+        else {
+            assert(false);
+        }
     }
     Symbol() {
         tag = -1;
@@ -230,8 +239,27 @@ public:
             string ident = it->first;
             cout << ident << endl;
             string id = ident + "_" + to_string(ParamNode->table.id);
-            str += "@" + id + " = alloc i32\n";
-            str += "store @" + ident + ", @" + id + "\n";
+            if (it->second.tag == 1) {
+                str += "@" + id + " = alloc i32\n";
+                str += "store @" + ident + ", @" + id + "\n";
+            }
+            else if (it->second.tag == 4) {
+                auto vec = it->second.data.array_dim_ptr;
+                if (vec == nullptr) {
+                    str += "@" + id + " = alloc *i32\n";
+                }
+                else {
+                    str += "@" + id + " = alloc *" + string(vec->size(), '[') + "i32";
+                    for (int i = vec->size() - 1; i >= 0;i--) {
+                        str += ", " + to_string((*vec)[i]) + "]";
+                    }
+                    str += "\n";
+                }
+                str += "store @" + ident + ", @" + id + "\n";
+            }
+            else {
+                assert(false);
+            }
         }
     }
 
@@ -327,8 +355,21 @@ public:
 
 class FuncFParamAST : public BaseAST {
 public:
-    string b_type;
-    string ident;
+    int tag;
+    struct {
+        string b_type;
+        string ident;
+    } data0;
+    struct {
+        string b_type;
+        string ident;
+    } data1;
+    struct {
+        string b_type;
+        string ident;
+        unique_ptr<vector<unique_ptr<BaseAST>>> const_exps;
+        vector<int> dimensions;
+    } data2;
 
     void Dump() const override {
 
@@ -336,11 +377,29 @@ public:
 
     void GenKoopa(string &str) override {
         //cout << ident << endl;
-        Symbol sym(1, 0);
-        current_node->table.insert(ident, sym);
-        str += "@" + ident;
-        if (b_type == "int")
-            str += ": i32";
+        if (tag == 0) {
+            Symbol sym(1, 0);
+            current_node->table.insert(data0.ident, sym);
+            str += "@" + data0.ident + ": i32";
+        }
+        else if (tag == 1) {
+            Symbol sym(4, nullptr);
+            current_node->table.insert(data1.ident, sym);
+            str += "@" + data1.ident + ": *i32";
+        }
+        else if (tag == 2) {
+            int size = data2.const_exps->size();
+            data2.dimensions.resize(size);
+            for (int i = 0; i < size;i++) {
+                data2.dimensions[i] = (*data2.const_exps)[i]->Calc().result;
+            }
+            Symbol sym(4, &data2.dimensions);
+            current_node->table.insert(data2.ident, sym);
+            str += "@" + data2.ident + ": *" + string(size, '[') + "i32";
+            for (int i = size - 1; i >= 0;i--) {
+                str += ", " + to_string(data2.dimensions[i]) + "]";
+            }
+        }
     }
 };
 
@@ -874,24 +933,47 @@ public:
             case 1:
                 str += "%" + to_string(id++) + " = load @" + data0.ident + "_" + to_string(table->id) + "\n";
                 break;
+            case 3: // array as ptr in params, like *i32
+                str += "%" + to_string(id++) + " = getelemptr @" + data0.ident + "_" + to_string(table->id) + ", 0\n";
+                break;
+            case 4: // ptr in params
+                str += "%" + to_string(id++) + " = load @" + data0.ident + "_" + to_string(table->id) + "\n";
+                break;
             }
         }
         else if (tag == 1) {
             SymbolTable *table = current_node->findTable(data1.ident);
             Symbol sym = table->find(data1.ident);
-            assert(sym.tag == 3);
+            assert(sym.tag == 3 || sym.tag == 4);
+            int defDim = (sym.data.array_dim_ptr == nullptr) ? 0 : sym.data.array_dim_ptr->size();
+            if (sym.tag == 4)
+                defDim++;
             auto it = data1.exps->begin();
             (*it)->GenKoopa(str);
-            str += "%" + to_string(id) + " = getelemptr @" + data1.ident + "_" + to_string(table->id) + ", %" + to_string(id - 1) + "\n";
-            id++;
-            for (it++; it != data1.exps->end();it++) {
+            if (sym.tag == 3) {
+                str += "%" + to_string(id) + " = getelemptr @" + data1.ident + "_" + to_string(table->id) + ", %" + to_string(id - 1) + "\n";
+                id++;
+            }
+            else if (sym.tag == 4) {
+                str += "%" + to_string(id) + " = load @" + data1.ident + "_" + to_string(table->id) + "\n";
+                id++;
+                str += "%" + to_string(id) + " = getptr %" + to_string(id - 1) + ", %" + to_string(id - 2) + "\n";
+                id++;
+            }
+            for (it++; it != data1.exps->end(); it++) {
                 int lastId = id - 1;
                 (*it)->GenKoopa(str);
                 str += "%" + to_string(id) + " = getelemptr %" + to_string(lastId) + ", %" + to_string(id - 1) + "\n";
                 id++;
             }
-            str += "%" + to_string(id) + " = load %" + to_string(id - 1) + "\n";
-            id++;
+            if (data1.exps->size() == defDim) {
+                str += "%" + to_string(id) + " = load %" + to_string(id - 1) + "\n";
+                id++;
+            }
+            else {
+                str += "%" + to_string(id) + " = getelemptr %" + to_string(id - 1) + ", 0\n";
+                id++;
+            }
         }
     }
 
@@ -1087,13 +1169,23 @@ public:
                 table = current_node->findTable(ident);
                 str += "store %" + to_string(id - 1) + ", @" + ident + "_" + to_string(table->id) + "\n\n";
             }
-            else if (data1.l_val->tag == 1) { // array
+            else if (data1.l_val->tag == 1) { // array or ptr
                 string ident = data1.l_val->data1.ident;
                 table = current_node->findTable(ident);
+                Symbol sym = table->find(ident);
+                assert(sym.tag == 3 || sym.tag == 4);
                 auto it = data1.l_val->data1.exps->begin();
                 (*it)->GenKoopa(str);
-                str += "%" + to_string(id) + " = getelemptr @" + ident + "_" + to_string(table->id) + ", %" + to_string(id - 1) + "\n";
-                id++;
+                if (sym.tag == 3) {
+                    str += "%" + to_string(id) + " = getelemptr @" + ident + "_" + to_string(table->id) + ", %" + to_string(id - 1) + "\n";
+                    id++;
+                }
+                else if (sym.tag == 4) {
+                    str += "%" + to_string(id) + " = load @" + ident + "_" + to_string(table->id) + "\n";
+                    id++;
+                    str += "%" + to_string(id) + " = getptr %" + to_string(id - 1) + ", %" + to_string(id - 2) + "\n";
+                    id++;
+                }
                 for (it++; it != data1.l_val->data1.exps->end();it++) {
                     int lastId = id - 1;
                     (*it)->GenKoopa(str);

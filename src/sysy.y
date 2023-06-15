@@ -305,8 +305,24 @@ FuncFParams
 FuncFParam 
   : Type IDENT {
     auto ast = new FuncFParamAST();
-    ast->b_type = *($1);
-    ast->ident = *($2);
+    ast->tag = 0;
+    ast->data0.b_type = *($1);
+    ast->data0.ident = *($2);
+    $$ = ast;
+  }
+  | Type IDENT '[' ']' {
+    auto ast = new FuncFParamAST();
+    ast->tag = 1;
+    ast->data1.b_type = *($1);
+    ast->data1.ident = *($2);
+    $$ = ast;
+  }
+  | Type IDENT '[' ']' ArrDimSet {
+    auto ast = new FuncFParamAST();
+    ast->tag = 2;
+    ast->data2.b_type = *($1);
+    ast->data2.ident = *($2);
+    ast->data2.const_exps = unique_ptr<vector<unique_ptr<BaseAST>>>($5);
     $$ = ast;
   }
   ;
