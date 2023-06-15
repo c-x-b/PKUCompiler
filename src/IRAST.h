@@ -17,13 +17,14 @@ static bool withinIf = 0;
 static string *curWhileEntry = nullptr;
 static string *curWhileEnd = nullptr;
 static vector<int> arrayDimensions;
+static vector<int>::iterator alignEnd; // 用于递归时的对齐，遍历[vec.rend(), alignEnd)来获得可对齐的最大边界
 class BaseAST;
 
 struct CalcResult {
     bool err;
     bool array;
     int result;
-    vector<int> *ptr;
+    vector<BaseAST*> *ptr;
 
     CalcResult(bool _err) { 
         err = _err;
@@ -41,7 +42,7 @@ struct CalcResult {
         err = _err;
         array = _array;
         result = _result;
-        ptr = new vector<int>;
+        ptr = new vector<BaseAST*>;
     }
 };
 
@@ -51,7 +52,7 @@ struct Symbol {
         int const_val;
         int var_id; // id, prevent duplicate names
         int func_has_ret; // 1 if func has ret
-        int array_occupy; // no meaning
+        vector<int>* array_dim_ptr; // ptr to vector of dimension
     } data;
 
     Symbol(int _tag, int val) {
@@ -67,10 +68,14 @@ struct Symbol {
             tag = 2;
             data.func_has_ret = val;
         }
-        else if (_tag==3) {
-            tag = 3;
-            data.array_occupy = val;
+        else {
+            assert(false);
         }
+    }
+    Symbol(int _tag, vector<int>* ptr) {
+        assert(_tag == 3);
+        tag = 3;
+        data.array_dim_ptr = ptr;
     }
     Symbol() {
         tag = -1;
@@ -131,7 +136,7 @@ public:
 
     virtual void Dump() const = 0;
 
-    virtual void GenKoopa(string & str) const = 0;
+    virtual void GenKoopa(string & str) = 0;
 
     virtual CalcResult Calc() {
         return CalcResult(true);
@@ -146,7 +151,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
 
     }
 };
@@ -188,7 +193,7 @@ public:
         cout << " }";
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) override {
         SymbolTableNode *node = new SymbolTableNode;
         node->parent = current_node;
         node->table.id = tableId++;
@@ -238,7 +243,7 @@ public:
         // cout << " }";
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) override {
         //cout << "tag: " << tag << endl;
         Symbol sym(2, 0);
         switch(tag) {
@@ -314,7 +319,7 @@ public:
         cout << "FunTypeAst { " << type << " }";
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) override {
         if (type == "int")
             str += ": i32";
     }
@@ -329,7 +334,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         //cout << ident << endl;
         Symbol sym(1, 0);
         current_node->table.insert(ident, sym);
@@ -363,7 +368,7 @@ public:
         }
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         if (hasRet)
             return;
         switch(tag) {
@@ -389,7 +394,7 @@ public:
         cout << " }";
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         assert(b_type == "int");
         for (auto it = const_defs->begin(); it != const_defs->end();it++)
             (*it)->GenKoopa(str);
@@ -406,6 +411,7 @@ public:
     struct {
         string ident;
         unique_ptr<vector<unique_ptr<BaseAST>>> const_exps;
+        vector<int> dimensions;
         unique_ptr<BaseAST> const_init_val;
     } data1;
 
@@ -413,7 +419,7 @@ public:
         //cout << "ConstDef { " << ident << " }; ";
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         bool global = (current_node->parent == nullptr);
         if (tag == 0) {
             CalcResult result = data0.const_init_val->Calc();
@@ -423,33 +429,78 @@ public:
             current_node->table.insert(data0.ident, sym);
         }
         else if (tag == 1) {
-            Symbol sym(3, 0);
-            current_node->table.insert(data1.ident, sym);
-            int dimension = (*data1.const_exps)[0]->Calc().result;
-            assert(dimension > 0);
             arrayDimensions.clear();
-            arrayDimensions.push_back(dimension);
+            int size = data1.const_exps->size();
+            int totalDimension = 1;
+            data1.dimensions.resize(size);
+            for (int i = 0; i < size;i++) {
+                data1.dimensions[i] = (*data1.const_exps)[i]->Calc().result;
+                arrayDimensions.push_back(data1.dimensions[i]);
+                totalDimension *= data1.dimensions[i];
+            }
+            alignEnd = arrayDimensions.begin();
+            Symbol sym(3, &data1.dimensions);
+            current_node->table.insert(data1.ident, sym);
             if (!global) {
                 string variable = "@" + data1.ident + "_" + to_string(current_node->table.id);
-                str += variable + " = alloc [i32, " + to_string(dimension) + "]\n";
-                vector<int> *ptr = data1.const_init_val->Calc().ptr;
-                int index = 0;
-                for (auto it = ptr->begin(); it != ptr->end();it++, index++) {
-                    str += "%" + to_string(id) + " = getelemptr " + variable + ", " + to_string(index) + "\n";
-                    str += "store " + to_string(*it) + ", %" + to_string(id++) + "\n";
+                str += variable + " = alloc " + string(size, '[') + "i32";
+                for (int i = size - 1; i >= 0;i--)
+                    str += ", " + to_string(data1.dimensions[i]) + "]";
+                str += "\n";
+                vector<BaseAST*> *ptr = data1.const_init_val->Calc().ptr;
+                int index = 1, init = 0;
+                auto it = ptr->begin();
+                init = 0;
+                if ((*it) != nullptr)
+                    init = (*it)->Calc().result;
+                str += "%" + to_string(id++) + " = getelemptr " + variable + ", 0\n";
+                for (int i = 1; i < size;i++) {
+                    str += "%" + to_string(id) + " = getelemptr %" + to_string(id - 1) + ", 0\n";
+                    id++;
+                }
+                str += "store " + to_string(init) + ", %" + to_string(id - 1) + "\n";
+                string base = (size == 1) ? variable : ("%" + to_string(id - 2));
+                for (it++; it != ptr->end(); it++, index++) {
+                    init = 0;
+                    if ((*it) != nullptr)
+                        init = (*it)->Calc().result;
+                    str += "%" + to_string(id) + " = getelemptr " + base + ", " + to_string(index) + "\n";
+                    str += "store " + to_string(init) + ", %" + to_string(id++) + "\n";
                 }
                 str += "\n";
                 delete ptr;
             }
             else {
-                str += "global @" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc [i32, " + to_string(dimension) + "], {";
-                vector<int> *ptr = data1.const_init_val->Calc().ptr;
-                auto it = ptr->begin();
-                str += to_string(*it);
-                for (it++; it != ptr->end();it++) {
-                    str += ", " + to_string(*it);
+                str += "global @" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc " + string(size, '[') + "i32";
+                vector<int> curlyBraceNums(totalDimension + 1, 0);
+                int mul = 1;
+                for (int i = size - 1; i >= 0;i--) {
+                    str += ", " + to_string(data1.dimensions[i]) + "]";
+                    mul *= data1.dimensions[i];
+                    for (int j = mul; j <= totalDimension;j+=mul) 
+                        curlyBraceNums[j]++;
                 }
-                str += "}\n\n";
+                str += ", " + string(size, '{');
+                vector<BaseAST *> *ptr = data1.const_init_val->Calc().ptr;
+                int init = 0, index = 0;
+                if ((*ptr)[index] != nullptr)
+                    init = (*ptr)[index]->Calc().result;
+                str += to_string(init);
+                for (index++; index != ptr->size();index++) {
+                    init = 0;
+                    if ((*ptr)[index] != nullptr)
+                        init = (*ptr)[index]->Calc().result;
+                    if (curlyBraceNums[index] > 0) {
+                        str += ", " + string(curlyBraceNums[index], '{') + to_string(init);
+                    }
+                    else if (curlyBraceNums[index+1] > 0){
+                        str += ", " + to_string(init) + string(curlyBraceNums[index + 1], '}');
+                    }
+                    else {
+                        str += ", " + to_string(init);
+                    }
+                }
+                str += "\n\n";
                 delete ptr;
             }
         }
@@ -478,29 +529,53 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         cout << "Const Init err\n";
     }
 
     CalcResult Calc() override {
         int num = 1;
-        for (int i = 0; i < arrayDimensions.size();i++) {
-            num *= arrayDimensions[i];
+        for (auto it = alignEnd; it != arrayDimensions.end();it++) {
+            num *= *it;
         }
+        cout << "new arr, num " << num << endl;
         if (tag == 0) {
             return data0.const_exp->Calc();
         }
         else if (tag == 1) {
             CalcResult result(false, true, 0);
-            result.ptr->resize(num, 0);
+            result.ptr->resize(num, nullptr);
             return result;
         }
         else if (tag == 2) {
             CalcResult result(false, true, 0);
-            result.ptr->resize(num, 0);
-            for (int i = 0; i < data2.const_init_vals->size();i++) {
-                (*result.ptr)[i] = (*data2.const_init_vals)[i]->Calc().result;
+            result.ptr->resize(num, nullptr);
+            int index = 0;
+            auto save = alignEnd;
+            for (auto it = data2.const_init_vals->begin(); it != data2.const_init_vals->end(); it++) {
+                ConstInitValAST *tmp = dynamic_cast<ConstInitValAST*>((*it).get());
+                if (tmp->tag==0) {
+                    (*result.ptr)[index] = (*it).get();
+                    index++;
+                }
+                else {
+                    cout << "const index " << index - 1 << " number\n";
+                    int div = index;
+                    for (alignEnd = arrayDimensions.end() - 1; alignEnd != save;alignEnd--) {
+                        if (div % (*alignEnd) != 0)
+                            break;
+                    }
+                    alignEnd++;
+                    assert(alignEnd != arrayDimensions.end());
+                    CalcResult init_val = (*it)->Calc();
+                    for (int i = 0; i < init_val.ptr->size(); i++, index++) {
+                        (*result.ptr)[index] = (*init_val.ptr)[i];
+                    }
+                    delete init_val.ptr;
+                    cout << "const index " << index << " array\n";
+                }
             }
+            alignEnd = save;
             return result;
         }
         return CalcResult(true);
@@ -521,7 +596,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         switch (tag) {
         case 0:
             data0.exp->GenKoopa(str);
@@ -536,23 +611,54 @@ public:
     CalcResult Calc() override
     {
         int num = 1;
-        for (int i = 0; i < arrayDimensions.size();i++) {
-            num *= arrayDimensions[i];
+        for (auto it = alignEnd; it != arrayDimensions.end();it++) {
+            num *= *it;
         }
-        cout << "init " << num << endl;
+        cout << "new arr, num " << num << endl;
         if (tag == 0) {
             return data0.exp->Calc();
         }
         else if (tag == 1) {
             CalcResult result(false, true, 0);
-            result.ptr->resize(num, 0);
+            result.ptr->resize(num, nullptr);
             return result;
         }
         else if (tag == 2) {
             CalcResult result(false, true, 0);
-            result.ptr->resize(num, 0);
+            result.ptr->resize(num, nullptr);
+            int index = 0;
+            auto save = alignEnd;
+            for (auto it = data2.init_vals->begin(); it != data2.init_vals->end(); it++) {
+                InitValAST *tmp = dynamic_cast<InitValAST*>((*it).get());
+                if (tmp->tag==0) {
+                    (*result.ptr)[index] = (*it).get();
+                    index++;
+                }
+                else {
+                    cout << "var index " << index - 1 << " number\n";
+                    int div = index;
+                    for (alignEnd = arrayDimensions.end() - 1; alignEnd != save;alignEnd--) {
+                        if (div % (*alignEnd) != 0)
+                            break;
+                    }
+                    alignEnd++;
+                    assert(alignEnd != arrayDimensions.end());
+                    CalcResult init_val = (*it)->Calc();
+                    for (int i = 0; i < init_val.ptr->size(); i++, index++) {
+                        (*result.ptr)[index] = (*init_val.ptr)[i];
+                    }
+                    delete init_val.ptr;
+                    cout << "var index " << index << " array\n";
+                }
+            }
+            alignEnd = save;
+            return result;
+        }
+        else if (tag == 2) {
+            CalcResult result(false, true, 0);
+            result.ptr->resize(num, nullptr);
             for (int i = 0; i < data2.init_vals->size();i++) {
-                (*result.ptr)[i] = (*data2.init_vals)[i]->Calc().result;
+                (*result.ptr)[i] = (*data2.init_vals)[i].get();
             }
             return result;
         }
@@ -569,7 +675,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         assert(b_type == "int");
         for (auto it = var_defs->begin(); it != var_defs->end();it++)
             (*it)->GenKoopa(str);
@@ -589,22 +695,23 @@ public:
     struct {
         string ident;
         unique_ptr<vector<unique_ptr<BaseAST>>> const_exps;
+        vector<int> dimensions;
     } data2;   
     struct {
         string ident;
         unique_ptr<vector<unique_ptr<BaseAST>>> const_exps;
-        unique_ptr<InitValAST> init_val;
+        vector<int> dimensions;
+        unique_ptr<BaseAST> init_val;
     } data3;
 
     void Dump() const override {
 
     }
 
-    void GenKoopa(string &str) const override {
-        Symbol varSym(1, 0);
-        Symbol arrSym(3, 0);
+    void GenKoopa(string &str) override {
         bool global = (current_node->parent == nullptr);
         if (tag == 0) {
+            Symbol varSym(1, 0);
             current_node->table.insert(data0.ident, varSym);
             if (!global)
                 str += "@" + data0.ident + "_" + to_string(current_node->table.id) + " = alloc i32\n";
@@ -612,6 +719,7 @@ public:
                 str += "global @" + data0.ident + "_" + to_string(current_node->table.id) + " = alloc i32, zeroinit\n\n";
         }
         else if (tag == 1) {
+            Symbol varSym(1, 0);
             current_node->table.insert(data1.ident, varSym);
             if (!global) {
                 str += "@" + data1.ident + "_" + to_string(current_node->table.id) + " = alloc i32\n";
@@ -627,62 +735,113 @@ public:
             }
         }
         else if (tag == 2) {
-            current_node->table.insert(data2.ident, arrSym);
-            int dimension = (*data2.const_exps)[0]->Calc().result;
-            assert(dimension > 0);
             arrayDimensions.clear();
-            arrayDimensions.push_back(dimension);
+            int size = data2.const_exps->size();
+            data2.dimensions.resize(size);
+            for (int i = 0; i < size;i++) {
+                data2.dimensions[i] = (*data2.const_exps)[i]->Calc().result;
+                arrayDimensions.push_back(data2.dimensions[i]);
+            }
+            alignEnd = arrayDimensions.begin();
+            Symbol arrSym(3, &data2.dimensions);
+            current_node->table.insert(data2.ident, arrSym);
             string variable = "@" + data2.ident + "_" + to_string(current_node->table.id);
             if (!global) {
-                str += variable + " = alloc [i32, " + to_string(dimension) + "]\n";
+                str += variable + " = alloc " + string(size, '[') + "i32";
+                for (int i = size - 1; i >= 0;i--)
+                    str += ", " + to_string(data2.dimensions[i]) + "]";
+                str += "\n";
             }
             else {
-                str += "global " + variable + " = alloc [i32, " + to_string(dimension) + "], zeroinit\n\n";
+                str += "global " + variable + " = alloc " + string(size, '[') + "i32";
+                for (int i = size - 1; i >= 0;i--)
+                    str += ", " + to_string(data2.dimensions[i]) + "]";
+                str += ", zeroinit\n\n";
             }
         }
         else if (tag == 3) {
-            current_node->table.insert(data3.ident, arrSym);
-            int dimension = (*data3.const_exps)[0]->Calc().result;
-            assert(dimension > 0);
             arrayDimensions.clear();
-            arrayDimensions.push_back(dimension);
+            int size = data3.const_exps->size();
+            int totalDimension = 1;
+            data3.dimensions.resize(size);
+            for (int i = 0; i < size;i++) {
+                data3.dimensions[i] = (*data3.const_exps)[i]->Calc().result;
+                arrayDimensions.push_back(data3.dimensions[i]);
+                totalDimension *= data3.dimensions[i];
+            }
+            alignEnd = arrayDimensions.begin();
+            Symbol arrSym(3, &data3.dimensions);
+            current_node->table.insert(data3.ident, arrSym);
+            int dimension = data3.dimensions[0];
+            assert(dimension > 0);
             string variable = "@" + data3.ident + "_" + to_string(current_node->table.id);
             if (!global) {
-                str += variable + " = alloc [i32, " + to_string(dimension) + "]\n";
-                assert(data3.init_val->tag != 0);
-                if (data3.init_val->tag == 1) {
-                    for (int i = 0; i < dimension;i++) {
-                        str += "%" + to_string(id) + " = getelemptr " + variable + ", " + to_string(i) + "\n";
-                        str += "store 0, %" + to_string(id) + "\n";
-                        id++;
-                    }
-                    str += "\n";
+                str += variable + " = alloc " + string(size, '[') + "i32";
+                for (int i = size - 1; i >= 0;i--)
+                    str += ", " + to_string(data3.dimensions[i]) + "]";
+                str += "\n";
+                vector<BaseAST*> *ptr = data3.init_val->Calc().ptr;
+                int index = 1, destId;
+                auto it = ptr->begin();
+                str += "%" + to_string(id++) + " = getelemptr " + variable + ", 0\n";
+                for (int i = 1; i < size;i++) {
+                    str += "%" + to_string(id) + " = getelemptr %" + to_string(id - 1) + ", 0\n";
+                    id++;
                 }
-                else if (data3.init_val->tag == 2) {
-                    int len = data3.init_val->data2.init_vals->size();
-                    for (int i = 0; i < dimension;i++) {
-                        str += "%" + to_string(id) + " = getelemptr " + variable + ", " + to_string(i) + "\n";
-                        int destId = id++;
-                        if (i < len) {
-                            (*data3.init_val->data2.init_vals)[i]->GenKoopa(str);
-                            str += "store %" + to_string(id - 1) + ", %" + to_string(destId) + "\n";
-                        }
-                        else {
-                            str += "store 0, %" + to_string(destId) + "\n";
-                        }
-                    }
-                    str += "\n";
+                destId = id - 1;
+                string base = (size == 1) ? variable : ("%" + to_string(id - 2));
+                if ((*it) != nullptr) {
+                    (*it)->GenKoopa(str);
+                    str += "store %" + to_string(id - 1) + ", %" + to_string(destId) + "\n";
                 }
+                else {
+                    str += "store 0, %" + to_string(destId) + "\n";
+                }
+                for (it++; it != ptr->end();it++, index++) {
+                    str += "%" + to_string(id) + " = getelemptr " + base + ", " + to_string(index) + "\n";
+                    destId = id++;
+                    if ((*it) != nullptr) {
+                        (*it)->GenKoopa(str);
+                        str += "store %" + to_string(id - 1) + ", %" + to_string(destId) + "\n";
+                    }
+                    else {
+                        str += "store 0, %" + to_string(destId) + "\n";
+                    }
+                }
+                str += "\n";
+                delete ptr;
             }
             else {
-                str += "global " + variable + " = alloc [i32, " + to_string(dimension) + "], {";
-                vector<int> *ptr = data3.init_val->Calc().ptr;
-                auto it = ptr->begin();
-                str += to_string(*it);
-                for (it++; it != ptr->end();it++) {
-                    str += ", " + to_string(*it);
+                str += "global " + variable + " = alloc " + string(size, '[') + "i32";
+                vector<int> curlyBraceNums(totalDimension + 1, 0);
+                int mul = 1;
+                for (int i = size - 1; i >= 0;i--) {
+                    str += ", " + to_string(data3.dimensions[i]) + "]";
+                    mul *= data3.dimensions[i];
+                    for (int j = mul; j <= totalDimension;j+=mul) 
+                        curlyBraceNums[j]++;
                 }
-                str += "}\n\n";
+                str += ", " + string(size, '{');
+                vector<BaseAST*> *ptr = data3.init_val->Calc().ptr;
+                int init = 0, index = 0;
+                if ((*ptr)[index] != nullptr)
+                    init = (*ptr)[index]->Calc().result;
+                str += to_string(init);
+                for (index++; index != ptr->size();index++) {
+                    init = 0;
+                    if ((*ptr)[index] != nullptr)
+                        init = (*ptr)[index]->Calc().result;
+                    if (curlyBraceNums[index] > 0) {
+                        str += ", " + string(curlyBraceNums[index], '{') + to_string(init);
+                    }
+                    else if (curlyBraceNums[index+1] > 0){
+                        str += ", " + to_string(init) + string(curlyBraceNums[index + 1], '}');
+                    }
+                    else {
+                        str += ", " + to_string(init);
+                    }
+                }
+                str += "\n\n";
                 delete ptr;
             }
         }
@@ -704,7 +863,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         if (tag == 0) {
             SymbolTable *table = current_node->findTable(data0.ident);
             Symbol sym = table->find(data0.ident);
@@ -721,9 +880,16 @@ public:
             SymbolTable *table = current_node->findTable(data1.ident);
             Symbol sym = table->find(data1.ident);
             assert(sym.tag == 3);
-            (*data1.exps)[0]->GenKoopa(str);
+            auto it = data1.exps->begin();
+            (*it)->GenKoopa(str);
             str += "%" + to_string(id) + " = getelemptr @" + data1.ident + "_" + to_string(table->id) + ", %" + to_string(id - 1) + "\n";
             id++;
+            for (it++; it != data1.exps->end();it++) {
+                int lastId = id - 1;
+                (*it)->GenKoopa(str);
+                str += "%" + to_string(id) + " = getelemptr %" + to_string(lastId) + ", %" + to_string(id - 1) + "\n";
+                id++;
+            }
             str += "%" + to_string(id) + " = load %" + to_string(id - 1) + "\n";
             id++;
         }
@@ -757,7 +923,7 @@ public:
         cout << " }";
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) override {
         //cout << "Block, Table " << tableId << endl;
         SymbolTableNode *node = new SymbolTableNode;
         node->parent = current_node;
@@ -796,7 +962,7 @@ public:
         cout << "; \n";
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         switch(tag) {
         case 0:
             data0.decl->GenKoopa(str);
@@ -822,7 +988,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         if (hasRet)
             return;
         switch(tag) {
@@ -883,7 +1049,7 @@ public:
         }
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) override {
         if (hasRet)
             return;
         SymbolTable *table;
@@ -915,18 +1081,25 @@ public:
             break;
         case 1:
             //cout << "Stmt, lval = exp;" << endl;
-            if (data1.l_val->tag == 0) {
+            if (data1.l_val->tag == 0) { // var
                 data1.exp->GenKoopa(str);
                 string ident = data1.l_val->data0.ident;
                 table = current_node->findTable(ident);
                 str += "store %" + to_string(id - 1) + ", @" + ident + "_" + to_string(table->id) + "\n\n";
             }
-            else if (data1.l_val->tag == 1) {
+            else if (data1.l_val->tag == 1) { // array
                 string ident = data1.l_val->data1.ident;
                 table = current_node->findTable(ident);
-                (*data1.l_val->data1.exps)[0]->GenKoopa(str);
+                auto it = data1.l_val->data1.exps->begin();
+                (*it)->GenKoopa(str);
                 str += "%" + to_string(id) + " = getelemptr @" + ident + "_" + to_string(table->id) + ", %" + to_string(id - 1) + "\n";
                 id++;
+                for (it++; it != data1.l_val->data1.exps->end();it++) {
+                    int lastId = id - 1;
+                    (*it)->GenKoopa(str);
+                    str += "%" + to_string(id) + " = getelemptr %" + to_string(lastId) + ", %" + to_string(id - 1) + "\n";
+                    id++;
+                }
                 string destId = "%" + to_string(id - 1);
                 data1.exp->GenKoopa(str);
                 str += "store %" + to_string(id - 1) + ", " + destId + "\n\n";
@@ -1025,7 +1198,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         if (hasRet)
             return;
         string flagThen, flagElse, flagEnd;
@@ -1110,7 +1283,7 @@ public:
         l_or_exp->Dump();
     }
 
-    void GenKoopa(string & str) const override
+    void GenKoopa(string & str) override
     {
         l_or_exp->GenKoopa(str);
     }
@@ -1148,7 +1321,7 @@ public:
 
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) override {
         switch(tag) {
         case 0:
             data0.exp->GenKoopa(str);
@@ -1206,7 +1379,7 @@ public:
         }
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) override {
         SymbolTable *funcTable;
         Symbol funcSym;
         switch(tag) {
@@ -1308,7 +1481,7 @@ public:
         }
     }
 
-    void GenKoopa(string & str) const override {
+    void GenKoopa(string & str) override {
         switch(op) {
         case OP_ADD:
             // do nothing
@@ -1350,7 +1523,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         switch(tag) {
         case 0:
             data0.unary_exp->GenKoopa(str);
@@ -1418,7 +1591,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         switch(tag) {
         case 0:
             data0.mul_exp->GenKoopa(str);
@@ -1483,7 +1656,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         switch(tag) {
         case 0:
             data0.add_exp->GenKoopa(str);
@@ -1556,7 +1729,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         switch(tag) {
         case 0:
             data0.rel_exp->GenKoopa(str);
@@ -1614,7 +1787,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         switch(tag) {
         case 0:
             data0.eq_exp->GenKoopa(str);
@@ -1671,7 +1844,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
         switch(tag) {
         case 0:
             data0.l_and_exp->GenKoopa(str);
@@ -1721,7 +1894,7 @@ public:
 
     }
 
-    void GenKoopa(string &str) const override {
+    void GenKoopa(string &str) override {
 
     }
 
