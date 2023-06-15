@@ -405,7 +405,7 @@ public:
     } data0;
     struct {
         string ident;
-        unique_ptr<BaseAST> const_exp;
+        unique_ptr<vector<unique_ptr<BaseAST>>> const_exps;
         unique_ptr<BaseAST> const_init_val;
     } data1;
 
@@ -425,7 +425,7 @@ public:
         else if (tag == 1) {
             Symbol sym(3, 0);
             current_node->table.insert(data1.ident, sym);
-            int dimension = data1.const_exp->Calc().result;
+            int dimension = (*data1.const_exps)[0]->Calc().result;
             assert(dimension > 0);
             arrayDimensions.clear();
             arrayDimensions.push_back(dimension);
@@ -471,7 +471,7 @@ public:
         unique_ptr<BaseAST> const_exp;
     } data0;
     struct {
-        unique_ptr<vector<unique_ptr<BaseAST>>> const_exps;
+        unique_ptr<vector<unique_ptr<BaseAST>>> const_init_vals;
     } data2;
 
     void Dump() const override {
@@ -498,8 +498,8 @@ public:
         else if (tag == 2) {
             CalcResult result(false, true, 0);
             result.ptr->resize(num, 0);
-            for (int i = 0; i < data2.const_exps->size();i++) {
-                (*result.ptr)[i] = (*data2.const_exps)[i]->Calc().result;
+            for (int i = 0; i < data2.const_init_vals->size();i++) {
+                (*result.ptr)[i] = (*data2.const_init_vals)[i]->Calc().result;
             }
             return result;
         }
@@ -514,7 +514,7 @@ public:
         unique_ptr<BaseAST> exp;
     } data0;
     struct {
-        unique_ptr<vector<unique_ptr<BaseAST>>> exps;
+        unique_ptr<vector<unique_ptr<BaseAST>>> init_vals;
     } data2;
 
     void Dump() const override {
@@ -551,8 +551,8 @@ public:
         else if (tag == 2) {
             CalcResult result(false, true, 0);
             result.ptr->resize(num, 0);
-            for (int i = 0; i < data2.exps->size();i++) {
-                (*result.ptr)[i] = (*data2.exps)[i]->Calc().result;
+            for (int i = 0; i < data2.init_vals->size();i++) {
+                (*result.ptr)[i] = (*data2.init_vals)[i]->Calc().result;
             }
             return result;
         }
@@ -588,11 +588,11 @@ public:
     } data1;
     struct {
         string ident;
-        unique_ptr<BaseAST> const_exp;
+        unique_ptr<vector<unique_ptr<BaseAST>>> const_exps;
     } data2;   
     struct {
         string ident;
-        unique_ptr<BaseAST> const_exp;
+        unique_ptr<vector<unique_ptr<BaseAST>>> const_exps;
         unique_ptr<InitValAST> init_val;
     } data3;
 
@@ -628,7 +628,7 @@ public:
         }
         else if (tag == 2) {
             current_node->table.insert(data2.ident, arrSym);
-            int dimension = data2.const_exp->Calc().result;
+            int dimension = (*data2.const_exps)[0]->Calc().result;
             assert(dimension > 0);
             arrayDimensions.clear();
             arrayDimensions.push_back(dimension);
@@ -642,7 +642,7 @@ public:
         }
         else if (tag == 3) {
             current_node->table.insert(data3.ident, arrSym);
-            int dimension = data3.const_exp->Calc().result;
+            int dimension = (*data3.const_exps)[0]->Calc().result;
             assert(dimension > 0);
             arrayDimensions.clear();
             arrayDimensions.push_back(dimension);
@@ -659,12 +659,12 @@ public:
                     str += "\n";
                 }
                 else if (data3.init_val->tag == 2) {
-                    int len = data3.init_val->data2.exps->size();
+                    int len = data3.init_val->data2.init_vals->size();
                     for (int i = 0; i < dimension;i++) {
                         str += "%" + to_string(id) + " = getelemptr " + variable + ", " + to_string(i) + "\n";
                         int destId = id++;
                         if (i < len) {
-                            (*data3.init_val->data2.exps)[i]->GenKoopa(str);
+                            (*data3.init_val->data2.init_vals)[i]->GenKoopa(str);
                             str += "store %" + to_string(id - 1) + ", %" + to_string(destId) + "\n";
                         }
                         else {
@@ -697,7 +697,7 @@ public:
     } data0;
     struct {
         string ident;
-        unique_ptr<BaseAST> exp;
+        unique_ptr<vector<unique_ptr<BaseAST>>> exps;
     } data1;
 
     void Dump() const override {
@@ -721,7 +721,7 @@ public:
             SymbolTable *table = current_node->findTable(data1.ident);
             Symbol sym = table->find(data1.ident);
             assert(sym.tag == 3);
-            data1.exp->GenKoopa(str);
+            (*data1.exps)[0]->GenKoopa(str);
             str += "%" + to_string(id) + " = getelemptr @" + data1.ident + "_" + to_string(table->id) + ", %" + to_string(id - 1) + "\n";
             id++;
             str += "%" + to_string(id) + " = load %" + to_string(id - 1) + "\n";
@@ -924,7 +924,7 @@ public:
             else if (data1.l_val->tag == 1) {
                 string ident = data1.l_val->data1.ident;
                 table = current_node->findTable(ident);
-                data1.l_val->data1.exp->GenKoopa(str);
+                (*data1.l_val->data1.exps)[0]->GenKoopa(str);
                 str += "%" + to_string(id) + " = getelemptr @" + ident + "_" + to_string(table->id) + ", %" + to_string(id - 1) + "\n";
                 id++;
                 string destId = "%" + to_string(id - 1);

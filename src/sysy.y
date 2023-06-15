@@ -48,7 +48,7 @@ using namespace std;
                 Block BlockItem Stmt MatchedStmt OpenStmt 
                 ExpOrNone Exp LVal PrimaryExp UnaryExp UnaryOp MulExp AddExp RelExp EqExp LAndExp LOrExp ConstExp
 %type <int_val> Number
-%type <vec_val> CompUnitSet ConstDefSet ConstExpSet VarDefSet ExpSet FuncFParams BlockItemSet FuncRParams
+%type <vec_val> CompUnitSet ConstDefSet ArrDimSet ConstInitValSet VarDefSet InitValSet FuncFParams BlockItemSet ArrUseSet FuncRParams
 %type <str_val> Type
 
 %%
@@ -125,13 +125,25 @@ ConstDef
     ast->data0.const_init_val = unique_ptr<BaseAST>($3);
     $$ = ast;
   }
-  | IDENT '[' ConstExp ']' '=' ConstInitVal {
+  | IDENT ArrDimSet '=' ConstInitVal {
     auto ast = new ConstDefAST();
     ast->tag = 1;
     ast->data1.ident = *($1);
-    ast->data1.const_exp = unique_ptr<BaseAST>($3);
-    ast->data1.const_init_val = unique_ptr<BaseAST>($6);
+    ast->data1.const_exps = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    ast->data1.const_init_val = unique_ptr<BaseAST>($4);
     $$ = ast;
+  }
+  ;
+ArrDimSet
+  : '[' ConstExp ']' {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($2));
+    $$ = vec;
+  }
+  | ArrDimSet '[' ConstExp ']' {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
   }
   ;
 ConstInitVal 
@@ -146,20 +158,20 @@ ConstInitVal
     ast->tag = 1;
     $$ = ast;
   }
-  | '{' ConstExpSet '}' {
+  | '{' ConstInitValSet '}' {
     auto ast = new ConstInitValAST();
     ast->tag = 2;
-    ast->data2.const_exps = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    ast->data2.const_init_vals = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = ast;
   }
   ;
-ConstExpSet 
-  : ConstExp {
+ConstInitValSet 
+  : ConstInitVal {
     auto vec = new vector<unique_ptr<BaseAST>>;
     vec->push_back(unique_ptr<BaseAST>($1));
     $$ = vec;
   }
-  | ConstExpSet ',' ConstExp {
+  | ConstInitValSet ',' ConstInitVal {
     auto vec = $1;
     vec->push_back(unique_ptr<BaseAST>($3));
     $$ = vec;
@@ -201,19 +213,19 @@ VarDef
     //cout << "done1" << endl;
     $$ = ast;
   }
-  | IDENT '[' ConstExp ']' {
+  | IDENT ArrDimSet {
     auto ast = new VarDefAST();
     ast->tag = 2;
     ast->data2.ident = *($1);
-    ast->data2.const_exp = unique_ptr<BaseAST>($3);
+    ast->data2.const_exps = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = ast;
   }
-  | IDENT '[' ConstExp ']' '=' InitVal {
+  | IDENT ArrDimSet '=' InitVal {
     auto ast = new VarDefAST();
     ast->tag = 3;
     ast->data3.ident = *($1);
-    ast->data3.const_exp = unique_ptr<BaseAST>($3);
-    ast->data3.init_val = unique_ptr<InitValAST>(dynamic_cast<InitValAST*>($6));
+    ast->data3.const_exps = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    ast->data3.init_val = unique_ptr<InitValAST>(dynamic_cast<InitValAST*>($4));
     $$ = ast;
   }
   ;
@@ -229,20 +241,20 @@ InitVal
     ast->tag = 1;
     $$ = ast;
   }
-  | '{' ExpSet '}' {
+  | '{' InitValSet '}' {
     auto ast = new InitValAST();
     ast->tag = 2;
-    ast->data2.exps = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
+    ast->data2.init_vals = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = ast;
   }
   ;
-ExpSet
-  : Exp {
+InitValSet
+  : InitVal {
     auto vec = new vector<unique_ptr<BaseAST>>;
     vec->push_back(unique_ptr<BaseAST>($1));
     $$ = vec;
   }
-  | ExpSet ',' Exp {
+  | InitValSet ',' InitVal {
     auto vec = $1;
     vec->push_back(unique_ptr<BaseAST>($3));
     $$ = vec;
@@ -450,12 +462,24 @@ LVal
     ast->data0.ident = *($1);
     $$ = ast;
   }
-  | IDENT '[' Exp ']' {
+  | IDENT ArrUseSet {
     auto ast = new LValAST();
     ast->tag = 1;
     ast->data1.ident = *($1);
-    ast->data1.exp = unique_ptr<BaseAST>($3);
+    ast->data1.exps = unique_ptr<vector<unique_ptr<BaseAST>>>($2);
     $$ = ast;
+  }
+  ;
+ArrUseSet
+  : '[' Exp ']' {
+    auto vec = new vector<unique_ptr<BaseAST>>;
+    vec->push_back(unique_ptr<BaseAST>($2));
+    $$ = vec;
+  }
+  | ArrUseSet '[' Exp ']' {
+    auto vec = $1;
+    vec->push_back(unique_ptr<BaseAST>($3));
+    $$ = vec;
   }
   ;
 PrimaryExp
