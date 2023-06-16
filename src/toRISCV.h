@@ -208,6 +208,18 @@ private:
                         varSpace += arrSpace;
                         arrTable.insert(inst, dim);
                     }
+                    else if (inst->kind.tag == KOOPA_RVT_ALLOC && inst->ty->data.pointer.base->tag == KOOPA_RTT_POINTER) {
+                        vector<int> dim;
+                        dim.clear();
+                        dim.push_back(1);
+                        auto base = inst->ty->data.pointer.base->data.pointer.base;
+                        while (base->tag == KOOPA_RTT_ARRAY) {
+                            dim.push_back(base->data.array.len);
+                            base = base->data.array.base;
+                        }
+                        varSpace += 4;
+                        arrTable.insert(inst, dim);
+                    }
                     else {
                         varSpace += 4;
                     }
@@ -298,6 +310,9 @@ private:
             break;
         case KOOPA_RVT_GET_ELEM_PTR:
             VisitGetElemPtr(value);
+            break;
+        case KOOPA_RVT_GET_PTR:
+            VisitGetPtr(value);
             break;
         default:
         // 其他类型暂时遇不到
@@ -855,6 +870,61 @@ private:
         *riscv += "add t0, t0, t1\n";
 
         int loc = stackTable.access(value);
+        if (loc >= 2048) {
+            *riscv += "li t3, " + to_string(loc) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "sw t0, 0(t3)\n\n";
+        }
+        else {
+            *riscv += "sw t0, " + to_string(loc) + "(sp)\n\n";
+        }
+    }
+
+    void VisitGetPtr(const koopa_raw_value_t &value) {
+        koopa_raw_get_ptr_t getPtr = value->kind.data.get_ptr;
+
+        int arrOffset;
+        auto arrPtr = getPtr.src->kind.data.load.src;
+        vector<int> dim;
+        arrTable.get(arrPtr, dim);
+        arrOffset = 4;
+        for (auto it = dim.begin() + 1; it != dim.end();it++) {
+            arrOffset *= *it;
+        }
+        offsetTable.insert(value, offsetData{arrOffset, 1, arrPtr});
+
+        int loc = stackTable.access(getPtr.src);
+        if (loc >= 2048) {
+            *riscv += "li t3, " + to_string(loc) + "\n";
+            *riscv += "add t3, sp, t3\n";
+            *riscv += "lw t0, 0(t3)\n";
+        }
+        else {
+            *riscv += "lw t0, " + to_string(loc) + "(sp)\n";
+        }
+
+        *riscv += "li t1, " + to_string(arrOffset) + "\n";
+
+        if (getPtr.index->kind.tag == KOOPA_RVT_INTEGER) {
+            int imm = getPtr.index->kind.data.integer.value;
+            *riscv += "li t2, " + to_string(imm) + "\n";
+        }
+        else {
+            int loc = stackTable.access(getPtr.index);
+            if (loc >=2048) {
+                *riscv += "li t3, " + to_string(loc) + "\n";
+                *riscv += "add t3, sp, t3\n";
+                *riscv += "lw t2, 0(t3)\n";
+            }
+            else {
+                *riscv += "lw t2, " + to_string(loc) + "(sp)\n";
+            }
+        }
+
+        *riscv += "mul t1, t1, t2\n";
+        *riscv += "add t0, t0, t1\n";
+
+        loc = stackTable.access(value);
         if (loc >= 2048) {
             *riscv += "li t3, " + to_string(loc) + "\n";
             *riscv += "add t3, sp, t3\n";
